@@ -1,0 +1,29 @@
+# WordPress
+wp-config.php
+*.log
+.htaccess
+
+# Dependencies
+node_modules/
+vendor/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build / Archives
+*.zip
+*.rar
+
+# Cline / AI
+.cline/
+.clinerules/
+
+# Secrets
+.env
+*.key
+*.pem
+
+

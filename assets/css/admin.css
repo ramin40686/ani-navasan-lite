@@ -1,0 +1,54 @@
+/* استایل‌های اختصاصی افزونه نوسان آنی لایت */
+
+/* استایل پیش‌نمایش برای محصولات ساده */
+.ani_navasan_preview {
+    background: #f9f9f9;
+    border: 1px dashed #bbb;
+    padding: 10px;
+    margin-top: 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.ani_navasan_preview strong {
+    color: #0073aa;
+}
+
+.ani_navasan_preview .ani_rate {
+    color: #d54e21;
+    font-weight: bold;
+}
+
+.ani_navasan_preview .ani_final_price,
+.ani_navasan_preview .ani_final_min_price {
+    color: #21759b;
+    font-weight: bold;
+}
+
+
+/* استایل باکس پیش‌نمایش محاسبات محصول متغیر */
+.mnswmc-preview {
+    background: #f9f9f9;
+    border: 1px dashed #bbb;
+    padding: 10px;
+    margin-top: 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.mnswmc-preview strong {
+    color: #0073aa;
+}
+
+.mnswmc-preview .rate {
+    color: #d54e21;
+    font-weight: bold;
+}
+
+.mnswmc-preview .final,
+.mnswmc-preview .min-final {
+    color: #21759b;
+    font-weight: bold;
+}

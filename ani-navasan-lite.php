@@ -1,0 +1,63 @@
+<?php
+/**
+ * Plugin Name: نوسان آنی لایت (Ani Navasan Lite)
+ * Description: نسخه لایت افزونه نوسان برای مدیریت فروش ارزی ووکامرس
+ * Version: 1.0.0
+ * Author: ramin4068@gmail.com
+ * Text Domain: ani-navasan-lite
+ */
+
+if (!defined('ABSPATH')) exit;
+
+/**
+ * جلوگیری از اجرای همزمان با افزونه نوسان اصلی
+ */
+add_action('admin_init', function () {
+    $main_plugin = 'mns-woocommerce-rate-based-products/mns-woocommerce-rate-based-products.php';
+
+    if (is_plugin_active($main_plugin)) {
+        // غیرفعال کردن افزونه لایت
+        deactivate_plugins(plugin_basename(__FILE__));
+
+        // نمایش پیام خطا به مدیر
+        add_action('admin_notices', function () {
+            ?>
+            <div class="notice notice-error is-dismissible">
+                <p>
+                    ❌ افزونه <strong>نوسان آنی لایت</strong> غیرفعال شد، زیرا افزونه <strong>نوسان اصلی</strong> فعال است. 
+                    برای جلوگیری از تداخل، فقط یکی از این دو افزونه می‌تواند همزمان فعال باشد.
+                </p>
+            </div>
+            <?php
+        });
+    }
+});
+
+/**
+/**
+ * پیام فعال‌سازی (فقط یک بار بعد از فعال‌سازی)
+ */
+register_activation_hook(__FILE__, function () {
+    update_option('ani_navasan_lite_activated', 1);
+});
+
+add_action('admin_notices', function () {
+    $activated = get_option('ani_navasan_lite_activated', 0);
+    if ($activated == 1) {
+        ?>
+        <div class="notice notice-success is-dismissible">
+            <p>✅ افزونه <strong>نوسان آنی لایت</strong> فعال شد و آماده استفاده است.</p>
+        </div>
+        <?php
+        update_option('ani_navasan_lite_activated', 0); // مقدار رو صفر کن تا فقط بار اول بیاد
+    }
+});
+
+/**
+ * ادامه‌ی کدهای افزونه (فقط اگر افزونه اصلی فعال نباشد)
+ */
+add_action('plugins_loaded', function () {
+    if (!is_plugin_active('mns-woocommerce-rate-based-products/mns-woocommerce-rate-based-products.php')) {
+        require_once plugin_dir_path(__FILE__) . 'includes/init.php';
+    }
+});
