@@ -44,29 +44,57 @@ add_action('ani_navasan_lite_recalc_currency', function ($currency_id, $rate = n
 
     if (!$product_ids) return;
 
+    $parent_ids = [];
+
     foreach ($product_ids as $pid) {
         $active = get_post_meta($pid, '_mnswmc_active', true);
         if ($active !== 'yes') continue;
 
+        $product = wc_get_product($pid);
+        if (!$product) continue;
+
         $price_currency = (float) get_post_meta($pid, '_mnswmc_regular_price', true);
         $floor_currency = (float) get_post_meta($pid, '_torob_scraper_min_price_currency', true);
 
+        $needs_save = false;
+
         if ($price_currency > 0) {
             $price_tmn = ani_navasan_round_to_thousand($price_currency * $rate);
-            update_post_meta($pid, '_regular_price', $price_tmn);
-
-            // storefront از _price (قیمت فعال) می‌خواند؛ اگر محصول در حال تخفیف نیست،
-            // _price باید با _regular_price هم‌خوانی داشته باشد.
-            $sale_price = get_post_meta($pid, '_sale_price', true);
-            $is_on_sale = ($sale_price !== '' && $sale_price !== null && (float) $sale_price > 0);
-            if (!$is_on_sale) {
-                update_post_meta($pid, '_price', $price_tmn);
-            }
+            // استفاده از API ووکامرس (CRUD) برای همگام‌سازی صحیح قیمت فعال (_price)
+            // بر اساس وضعیت واقعی تخفیف (is_on_sale) و حفظ قیمت تخفیف (_sale_price).
+            // این کار کاش‌ها و جداول lookup ووکامرس را نیز به‌روزرسانی می‌کند.
+            $product->set_regular_price($price_tmn);
+            $needs_save = true;
         }
 
         if ($floor_currency > 0) {
             $floor_tmn = ani_navasan_round_to_thousand($floor_currency * $rate);
-            update_post_meta($pid, '_torob_scraper_min_price', $floor_tmn);
+            $product->update_meta_data('_torob_scraper_min_price', $floor_tmn);
+            $needs_save = true;
+        }
+
+        if ($needs_save) {
+            $product->save();
+        }
+
+        // ثبت شناسه محصولات متغیر والد برای همگام‌سازی بازه قیمت
+        if ($product->is_type('variation')) {
+            $parent_id = $product->get_parent_id();
+            if ($parent_id) {
+                $parent_ids[$parent_id] = true;
+            }
+        }
+    }
+
+    // همگام‌سازی قیمت فعال (_price) محصولات متغیر والد با حداقل قیمت وریشن‌ها
+    foreach (array_keys($parent_ids) as $parent_id) {
+        $parent = wc_get_product($parent_id);
+        if ($parent && $parent->is_type('variable')) {
+            $min_price = $parent->get_variation_price('min');
+            if ($min_price !== '' && $min_price !== null) {
+                $parent->set_price($min_price);
+                $parent->save();
+            }
         }
     }
 }, 10, 2);
