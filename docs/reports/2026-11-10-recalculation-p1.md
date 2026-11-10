@@ -255,6 +255,6 @@ The following regression checks were defined but could not be run:
 
 ## 12. Commit Hash
 
-_(To be filled after commit)_
+`9085956` — `fix: correct currency recalculation and rounding`
 
 
