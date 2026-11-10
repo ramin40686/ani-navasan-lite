@@ -332,6 +332,8 @@ After testing, the original product data for 17613, 17615, 17616, and 17617 was 
 
 ## 12. Commit Hash
 
-`9085956` — `fix: correct currency recalculation and rounding`
+- `800f8e6` — `fix: use WooCommerce CRUD API in recalculation for correct sale-price and cache sync` (this task: live integration testing + CRUD fix + report update)
+- `704ea2c` — `docs: add commit hash to recalculation P1 report`
+- `9085956` — `fix: correct currency recalculation and rounding` (initial P1 fix)
 
 
