@@ -94,10 +94,23 @@ add_action('ani_navasan_lite_recalc_currency', function ($currency_id, $rate = n
     // - WC_Product_Variable::sync متای _price را به‌صورت چند ردیف (یک ردیف برای هر
     //   قیمت متمایز وریشن) به‌روزرسانی می‌کند، جدول lookup (wc_product_meta_lookup)
     //   را همگام می‌سازد، وضعیت موجودی را همگام می‌کند و کاش‌ها را پاک می‌کند.
+    //
+    // با $save = false از ذخیره کامل محصول (product save) خودداری می‌شود:
+    // - sync_price() متای _price و جدول lookup را مستقیماً در دیتابیس به‌روزرسانی می‌کند
+    //   (بدون نیاز به save).
+    // - sync_attributes() برای محصولات مدرن (نسخه >= 2.4.0) بی‌اثر است.
+    // - sync_stock_status() فقط مقدار حافظه‌ای را تنظیم می‌کند؛ چون در بازمحاسبه قیمت
+    //   وضعیت موجودی تغییر نمی‌کند، نیازی به ذخیره آن نیست.
+    // - اجتناب از save کامل، از اجرای مجدد هوک‌های ذخیره محصول و بازنویسی
+    //   _product_attributes (که ریسک double-serialization دارد) جلوگیری می‌کند.
+    // چون sync_price() کاش‌ها را پاک نمی‌کند، کاش‌های مربوطه به‌صورت صریح پاک می‌شوند.
     foreach (array_keys($parent_ids) as $parent_id) {
         $parent = wc_get_product($parent_id);
         if ($parent && $parent->is_type('variable')) {
-            WC_Product_Variable::sync($parent);
+            WC_Product_Variable::sync($parent, false);
+            wc_delete_product_transients($parent_id);
+            WC_Cache_Helper::invalidate_cache_group('product_' . $parent_id);
+            clean_post_cache($parent_id);
         }
     }
 }, 10, 2);
