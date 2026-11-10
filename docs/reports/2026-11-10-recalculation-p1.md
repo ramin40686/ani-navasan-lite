@@ -493,4 +493,75 @@ After testing, the original product data for 17615, 17616, and 17617 was restore
 - `704ea2c` — `docs: add commit hash to recalculation P1 report`
 - `9085956` — `fix: correct currency recalculation and rounding` (Task 01: initial P1 fix)
 
+---
+
+## 14. Task 05 — Product Attribute Recovery & Code Cleanup (2026-11-10)
+
+**Branch:** `fix/restore-attributes-and-deduplicate` (branched from `fix/recalculation-p1`)
+
+Task 05 implemented the approved corrective actions from the Task 04 investigation. This section summarizes the work; the full technical detail is in `2026-11-10-technical-audit.md` (Section 8).
+
+### 14.1 Product 17615 Attribute Restoration
+
+Parent product `17615` had double-serialized `_product_attributes` and `_default_attributes` meta (confirmed in Task 04). The values were restored from the pre-corruption snapshot `/tmp/task03_snapshot.json`.
+
+**Before (corrupted):**
+- `_product_attributes`: `s:5522:"a:31:{...}"` (double-serialized) → `get_attributes()` returned 0
+- `_default_attributes`: `s:57:"a:1:{...}"` (double-serialized)
+
+**After (restored):**
+- `_product_attributes`: `a:31:{...}` (single-serialized) → `get_attributes()` returns 31
+- `_default_attributes`: `a:1:{s:17:"pa_color-selector";s:18:"%d8%a2%d8%a8%db%8c";}` (single-serialized)
+
+**Serialization prevention:** The snapshot values (serialized strings) were converted to PHP arrays with `maybe_unserialize()`, validated, and stored via `update_post_meta()` as **arrays** (not serialized strings). Passing the serialized string directly would have re-introduced double serialization, because WordPress serializes arrays on write.
+
+**Variation integrity:** `17616` and `17617` were untouched — parent, type, status, and all price/currency meta unchanged.
+
+### 14.2 Code Changes
+
+| File | Change |
+|---|---|
+| `admin/metabox.php` | Removed the duplicate `woocommerce_admin_process_product_object` handler (verified byte-for-byte identical). One registration + its callback removed; the remaining handler is unchanged. |
+| `assets/js/admin.js` | Removed the dead `woocommerce_variations_save_variations` hidden-input generation block (no consumer reads `variable_mnswmc_*` names). |
+| `includes/functions.php` | Changed `WC_Product_Variable::sync($parent)` → `WC_Product_Variable::sync($parent, false)` + explicit cache clearing (`wc_delete_product_transients`, `WC_Cache_Helper::invalidate_cache_group`, `clean_post_cache`). |
+| `docs/reports/2026-11-10-technical-audit.md` | Added Section 8 (Task 05 findings, restoration, sync decision, live tests, risks). |
+| `docs/reports/2026-11-10-recalculation-p1.md` | Added this Section 14. |
+
+### 14.3 Variable Synchronization Decision
+
+`WC_Product_Variable::sync($parent, false)` was adopted after source verification (WC 11.2.2):
+- `sync_price()` writes the parent `_price` meta and `wc_product_meta_lookup` **directly** (no save needed).
+- `sync_stock_status()` only sets in-memory state; safe to skip in the price-only recalculation flow.
+- `sync_attributes()` is a no-op for modern products.
+- Because `sync_price()` does not clear caches, explicit cache clearing was added.
+
+This avoids the full product save (which re-persists `_product_attributes` and fires unrelated save hooks) while keeping the parent price correctly derived from its variations.
+
+### 14.4 Live Test Results
+
+Live integration testing on `http://anishop-package-test.local` (WC 11.2.2, PHP 8.3.30) using the authorized test products. The recalculation was exercised by firing `ani_navasan_lite_recalc_currency` with an explicit rate (the referenced currency CPTs do not exist in the test environment).
+
+| Check | Result |
+|---|---|
+| Variation `17616` price updated (485 × 71000 = 34435000) | **PASS** |
+| Variation `17617` unchanged (33600000) | **PASS** |
+| Parent min/max price (33600000 / 34435000) | **PASS** |
+| Parent `_price` meta rows (multi-row) | **PASS** |
+| `wc_product_meta_lookup` updated | **PASS** |
+| Store API price range reflects new max | **PASS** |
+| Parent attributes intact (31) after sync | **PASS** |
+| `_product_attributes` still single-serialized after sync | **PASS** |
+| Parent stock status unchanged | **PASS** |
+| Original state restored at original rate (70000) | **PASS** |
+| Stability under repeated recalculation | **PASS** |
+
+**Data restoration:** After testing, the original commercial data for `17615`, `17616`, and `17617` was restored (rate re-applied at 70000). The repaired attribute values were intentionally **kept** in place (not reverted to the corrupted state). No other product was modified.
+
+### 14.5 Remaining Risks
+
+- **Original corruption cause unconfirmed** — the double-serialization trigger is not proven; a future task should instrument the `_product_attributes` write path.
+- **Stock status not persisted by `sync($parent, false)`** — safe for the price-only flow, but a future stock-changing recalculation would need an explicit save.
+- **Referenced currency CPTs missing in test environment** — recalculation tested by passing the rate directly; a full end-to-end currency-metabox test was not possible without creating currency posts.
+- **Section 1.4 variation JS selectors** remain unverified against a live admin DOM (P2).
+
 
