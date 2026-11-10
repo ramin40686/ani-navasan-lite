@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-10
 **Branch:** `fix/recalculation-p1`
-**Commit:** _(see Section 12)_
+**Commit:** `16d6896` (Task 03) / `800f8e6` (Task 02) / `9085956` (Task 01)
 
 ---
 
@@ -488,7 +488,7 @@ After testing, the original product data for 17615, 17616, and 17617 was restore
 
 ## 13. Commit Hash
 
-- `_(pending)_` — `fix: synchronize variable product prices through WooCommerce API` (Task 03: variable product sync review + `WC_Product_Variable::sync` fix + report update)
+- `16d6896` — `fix: synchronize variable product prices through WooCommerce API` (Task 03: variable product sync review + `WC_Product_Variable::sync` fix + report update)
 - `800f8e6` — `fix: use WooCommerce CRUD API in recalculation for correct sale-price and cache sync` (Task 02: live integration testing + CRUD fix + report update)
 - `704ea2c` — `docs: add commit hash to recalculation P1 report`
 - `9085956` — `fix: correct currency recalculation and rounding` (Task 01: initial P1 fix)
