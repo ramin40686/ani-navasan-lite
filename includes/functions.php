@@ -10,6 +10,19 @@ if (!defined('ABSPATH')) exit;
  */
 
 /**
+ * 🟢 گرد کردن قیمت تومانی به نزدیک‌ترین ۱۰۰۰ تومان
+ *
+ * سیاست گرد کردن نهایی: تمام قیمت‌های تومانی نهایی محاسبه‌شده توسط این افزونه
+ * باید به نزدیک‌ترین ۱۰۰۰ تومان گرد شوند.
+ *
+ * @param float|int $value مقدار قیمت تومانی
+ * @return int قیمت گرد شده به نزدیک‌ترین ۱۰۰۰ تومان
+ */
+function ani_navasan_round_to_thousand($value) {
+    return (int) round((float) $value / 1000) * 1000;
+}
+
+/**
  * 🟢 بروزرسانی قیمت تومانی محصولات برای یک ارز مشخص
  */
 add_action('ani_navasan_lite_recalc_currency', function ($currency_id, $rate = null) {
@@ -39,12 +52,20 @@ add_action('ani_navasan_lite_recalc_currency', function ($currency_id, $rate = n
         $floor_currency = (float) get_post_meta($pid, '_torob_scraper_min_price_currency', true);
 
         if ($price_currency > 0) {
-            $price_tmn = round($price_currency * $rate / 1000) * 1000;
+            $price_tmn = ani_navasan_round_to_thousand($price_currency * $rate);
             update_post_meta($pid, '_regular_price', $price_tmn);
+
+            // storefront از _price (قیمت فعال) می‌خواند؛ اگر محصول در حال تخفیف نیست،
+            // _price باید با _regular_price هم‌خوانی داشته باشد.
+            $sale_price = get_post_meta($pid, '_sale_price', true);
+            $is_on_sale = ($sale_price !== '' && $sale_price !== null && (float) $sale_price > 0);
+            if (!$is_on_sale) {
+                update_post_meta($pid, '_price', $price_tmn);
+            }
         }
 
         if ($floor_currency > 0) {
-            $floor_tmn = round($floor_currency * $rate / 1000) * 1000;
+            $floor_tmn = ani_navasan_round_to_thousand($floor_currency * $rate);
             update_post_meta($pid, '_torob_scraper_min_price', $floor_tmn);
         }
     }

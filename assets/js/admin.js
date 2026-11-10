@@ -1,6 +1,14 @@
 jQuery(document).ready(function ($) {
 
     // ============================
+    // helper: گرد کردن قیمت تومانی به نزدیک‌ترین ۱۰۰۰ تومان
+    // سیاست گرد کردن نهایی: تمام قیمت‌های تومانی نهایی به نزدیک‌ترین ۱۰۰۰ تومان گرد می‌شوند.
+    // ============================
+    function mnswmcRoundToThousand(value) {
+        return Math.round((parseFloat(value) || 0) / 1000) * 1000;
+    }
+
+    // ============================
     // helper: پیدا کردن regular price ساده
     // ============================
     function findSimpleRegularPrice() {
@@ -70,8 +78,8 @@ jQuery(document).ready(function ($) {
 
         function applySimpleRate(rate, basePrice, minPriceCurrency) {
             rate = parseFloat(rate) || 0;
-            const regularToman  = Math.round(basePrice * rate);
-            const minPriceToman = Math.round(minPriceCurrency * rate);
+            const regularToman  = mnswmcRoundToThousand(basePrice * rate);
+            const minPriceToman = mnswmcRoundToThousand(minPriceCurrency * rate);
 
             // مقداردهی به فیلد قیمت اصلی تومانی (با یافتن مقاوم)
             const $regularInput = findSimpleRegularPrice();
@@ -179,8 +187,8 @@ jQuery(document).ready(function ($) {
             const minVal = parseFloat($minPriceCurrency.val()) || 0;
 
             if (rate > 0 && priceVal > 0) {
-                const final = Math.round(rate * priceVal);
-                const minFinal = (minVal > 0) ? Math.round(rate * minVal) : '';
+                const final = mnswmcRoundToThousand(rate * priceVal);
+                const minFinal = (minVal > 0) ? mnswmcRoundToThousand(rate * minVal) : '';
 
                 $preview.find('.rate').text(rate ? rate.toLocaleString() : '-');
                 $preview.find('.final').text(final ? final.toLocaleString() : '-');

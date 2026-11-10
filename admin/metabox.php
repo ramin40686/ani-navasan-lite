@@ -154,14 +154,14 @@ add_action('woocommerce_admin_process_product_object', function ($product) {
                 $currency_price = floatval($currency_price);
 
                 if ($rate > 0 && $currency_price > 0) {
-                    $toman = round($rate * $currency_price);
+                    $toman = ani_navasan_round_to_thousand($rate * $currency_price);
 
                     $product->set_regular_price($toman);
                     $product->set_price($toman);
 
                     $min_price_currency = $product->get_meta('_torob_scraper_min_price_currency', true);
                     if ($min_price_currency !== '') {
-                        $min_toman = round(floatval($min_price_currency) * $rate);
+                        $min_toman = ani_navasan_round_to_thousand(floatval($min_price_currency) * $rate);
                         $product->update_meta_data('_torob_scraper_min_price', $min_toman);
                     }
                 }
@@ -209,14 +209,14 @@ add_action('woocommerce_admin_process_product_object', function ($product) {
                 $currency_price = floatval($currency_price);
 
                 if ($rate > 0 && $currency_price > 0) {
-                    $toman = round($rate * $currency_price);
+                    $toman = ani_navasan_round_to_thousand($rate * $currency_price);
 
                     $product->set_regular_price($toman);
                     $product->set_price($toman);
 
                     $min_price_currency = $product->get_meta('_torob_scraper_min_price_currency', true);
                     if ($min_price_currency !== '') {
-                        $min_toman = round(floatval($min_price_currency) * $rate);
+                        $min_toman = ani_navasan_round_to_thousand(floatval($min_price_currency) * $rate);
                         $product->update_meta_data('_torob_scraper_min_price', $min_toman);
                     }
                 }
@@ -346,14 +346,14 @@ add_action('woocommerce_save_product_variation', function ($variation_id, $i) {
                 $currency_price = floatval($currency_price);
 
                 if ($rate > 0 && $currency_price > 0) {
-                    $toman = round($rate * $currency_price);
+                    $toman = ani_navasan_round_to_thousand($rate * $currency_price);
 
                     update_post_meta($variation_id, '_regular_price', $toman);
                     update_post_meta($variation_id, '_price', $toman);
 
                     $min_price_currency = get_post_meta($variation_id, '_torob_scraper_min_price_currency', true);
                     if ($min_price_currency !== '') {
-                        $min_toman = round(floatval($min_price_currency) * $rate);
+                        $min_toman = ani_navasan_round_to_thousand(floatval($min_price_currency) * $rate);
                         update_post_meta($variation_id, '_torob_scraper_min_price', $min_toman);
                     }
                 }
