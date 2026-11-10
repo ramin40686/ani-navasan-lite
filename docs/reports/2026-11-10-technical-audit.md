@@ -2,7 +2,9 @@
 
 **Date:** 2026-11-10
 **Scope:** Static code review of the currency-dependent product price recalculation workflow
-**Method:** Source-code inspection (no runtime testing performed for this audit)
+**Method:** Source-code inspection + live runtime testing (Tasks 01–03)
+
+> **Update (Task 03, 2026-11-10):** This audit was originally a static-only review. Tasks 01–03 have since implemented the P1 fixes and performed live runtime testing on a local WordPress + WooCommerce environment. The sections below have been updated to reflect the resolved status of each finding. See `2026-11-10-recalculation-p1.md` for the full test results.
 
 ---
 
@@ -40,17 +42,22 @@ Two identical `add_action('woocommerce_admin_process_product_object', ...)` hand
 
 **File:** `includes/functions.php`
 
-The `ani_navasan_lite_recalc_currency` handler updates `_regular_price` via `update_post_meta()` but does not update `_price`.
+The original `ani_navasan_lite_recalc_currency` handler updated `_regular_price` via `update_post_meta()` but did not update `_price`.
 
-**WooCommerce behavior (verified against WC 11.2.1 source):**
+**WooCommerce behavior (verified against WC 11.2.2 source):**
 - `WC_Product::get_price()` returns `get_prop('price')`, which is backed by the `_price` meta field.
 - For simple products, the storefront active price is driven by `_price`.
 - For variable products, `WC_Product_Variable::get_variation_price()` → `read_price_data()` → `$variation->get_price('edit')` → reads `_price` of each variation.
 - When a product is saved via the CRUD API (`$product->save()`), WooCommerce's data store automatically syncs `_price` with `_regular_price` (or `_sale_price` if on sale). This sync does **not** occur when `update_post_meta()` is used directly.
+- For variable products, `handle_updated_props()` explicitly skips the `_price` sync (`$price_is_synced = true`). Therefore, `set_price() + save()` on a variable product does **not** update the `_price` meta.
 
-**Impact (suspected, requires runtime verification):** After a currency-rate change and recalculation, the storefront may display the stale `_price` value while `_regular_price` has been updated. This is a suspected P1 defect. The fix in this task adds an explicit `_price` update (guarded by an on-sale check) to the recalculation handler.
+**Impact (confirmed by runtime testing in Tasks 02–03):** After a currency-rate change and recalculation, the storefront displayed the stale `_price` value while `_regular_price` had been updated. This was a confirmed P1 defect.
 
-**Classification:** Confirmed static observation. Runtime impact suspected but not yet verified in a live WordPress + WooCommerce environment (see Section 4).
+**Resolution (implemented in Tasks 01–03):**
+1. The recalculation handler now uses the WooCommerce CRUD API (`wc_get_product()` → `set_regular_price()` → `save()`) instead of direct `update_post_meta()`. This ensures `_price` is correctly synced based on `is_on_sale()` (handling scheduled and expired sales) and the lookup table and caches are updated.
+2. For variable products, the parent's price is synchronized using `WC_Product_Variable::sync($parent)` (the standard WooCommerce API), which correctly updates the parent's `_price` meta (multiple rows), the `wc_product_meta_lookup` table, stock status, and caches.
+
+**Classification:** Confirmed (static + runtime). **Resolved** in Tasks 01–03.
 
 ### 1.4 Variation JavaScript selector and input-name inconsistencies
 
@@ -74,53 +81,61 @@ The script uses `jQuery(document).ready(function ($) { ... })`, which is the cor
 
 ## 2. Suspected Problems Requiring Runtime Verification
 
-These issues are identified from static code review but cannot be confirmed or ruled out without a live WordPress + WooCommerce environment.
+These issues were identified from static code review. Their status has been updated following live runtime testing in Tasks 01–03.
 
 ### 2.1 Stale storefront price after recalculation
 
-As described in Section 1.3, the recalculation handler updates `_regular_price` but not `_price`. Since the storefront reads `_price`, the displayed price may be stale after recalculation. **This requires runtime testing to confirm.**
+As described in Section 1.3, the recalculation handler updated `_regular_price` but not `_price`. Since the storefront reads `_price`, the displayed price was stale after recalculation.
+
+**Status: CONFIRMED and RESOLVED.** Live testing in Task 02 confirmed the stale `_price` issue. The fix (WooCommerce CRUD API) was verified to correctly sync `_price` based on `is_on_sale()`, including scheduled and expired sales.
 
 ### 2.2 Variation price range staleness
 
-For variable products, the parent's price range is computed from the variations' `_price` values. If the recalculation does not update the variations' `_price`, the parent's price range will be stale. **This requires runtime testing to confirm.**
+For variable products, the parent's price range is computed from the variations' `_price` values. If the recalculation does not update the variations' `_price`, the parent's price range will be stale.
+
+**Status: CONFIRMED and RESOLVED.** Live testing in Task 03 confirmed that the initial `set_price() + save()` approach did not update the parent's `_price` meta. The fix (`WC_Product_Variable::sync()`) was verified to correctly update the parent's `_price` meta, the lookup table, and the Store API price range.
 
 ### 2.3 WooCommerce cache and lookup table staleness
 
-The recalculation handler uses `update_post_meta()` directly, which does not trigger WooCommerce's product save hooks. This means:
-- The `wc_product_meta_lookup` table is not updated.
-- Product transients (e.g., `wc_var_prices_{product_id}`) are not invalidated.
+The original recalculation handler used `update_post_meta()` directly, which did not trigger WooCommerce's product save hooks. This meant:
+- The `wc_product_meta_lookup` table was not updated.
+- Product transients (e.g., `wc_var_prices_{product_id}`) were not invalidated.
 
-**Impact:** Price-based filtering and cached price ranges may show stale values until the cache expires or is manually cleared. **This requires runtime testing to confirm the practical impact.**
+**Status: CONFIRMED and RESOLVED.** Live testing in Tasks 02–03 confirmed the cache/lookup table staleness. The fix (WooCommerce CRUD API + `WC_Product_Variable::sync()`) was verified to correctly update the `wc_product_meta_lookup` table and clear product caches.
 
 ### 2.4 JavaScript variation selector matching
 
-As described in Section 1.4, the variation JavaScript selectors may not match the actual DOM in all WooCommerce versions. **This requires runtime verification in a live admin screen.**
+As described in Section 1.4, the variation JavaScript selectors may not match the actual DOM in all WooCommerce versions.
+
+**Status: NOT VERIFIED (P2, out of scope).** This was not tested in Tasks 01–03. It remains a P2 issue requiring runtime verification in a live admin screen.
 
 ---
 
 ## 3. Recommendations
 
-1. **Fix the stale `_price` bug in recalculation** (P1) — Add an explicit `_price` update to the recalculation handler, guarded by an on-sale check. *(Implemented in this task.)*
+1. **Fix the stale `_price` bug in recalculation** (P1) — Use the WooCommerce CRUD API to ensure `_price` is correctly synced. *(Implemented in Task 02. Resolved.)*
 
-2. **Unify rounding to 1,000 Toman** (P1) — Use a shared rounding function across all calculation paths (PHP save, PHP recalculation, JS preview). *(Implemented in this task.)*
+2. **Unify rounding to 1,000 Toman** (P1) — Use a shared rounding function across all calculation paths (PHP save, PHP recalculation, JS preview). *(Implemented in Task 01. Resolved.)*
 
-3. **Remove the duplicate `woocommerce_admin_process_product_object` handler** (P2) — Consolidate the two identical handlers into one. *(Not implemented in this task; out of scope.)*
+3. **Synchronize variable product parent price via standard API** (P1) — Use `WC_Product_Variable::sync($parent)` instead of `set_price() + save()` to correctly update the parent's `_price` meta, lookup table, and caches. *(Implemented in Task 03. Resolved.)*
 
-4. **Verify variation JavaScript selectors against live WooCommerce DOM** (P2) — Test the variation preview in a live admin screen and fix selectors if they do not match. *(Not implemented in this task; requires runtime testing.)*
+4. **Remove the duplicate `woocommerce_admin_process_product_object` handler** (P2) — Consolidate the two identical handlers into one. *(Not implemented; out of scope.)*
 
-5. **Add internationalization (i18n)** (P2) — Wrap all user-facing strings in `__()`, `_e()`, etc. *(Not implemented in this task; out of scope.)*
+5. **Verify variation JavaScript selectors against live WooCommerce DOM** (P2) — Test the variation preview in a live admin screen and fix selectors if they do not match. *(Not implemented; requires runtime testing.)*
 
-6. **Add automated tests** (P2) — Set up PHPUnit with the WordPress test framework and write integration tests for the recalculation workflow. *(Not implemented in this task; requires test infrastructure.)*
+6. **Add internationalization (i18n)** (P2) — Wrap all user-facing strings in `__()`, `_e()`, etc. *(Not implemented; out of scope.)*
 
-7. **Scope JavaScript loading to relevant admin screens** (P2) — Load the admin JS only on product edit screens where the currency fields are present. *(Not implemented in this task; out of scope.)*
+7. **Add automated tests** (P2) — Set up PHPUnit with the WordPress test framework and write integration tests for the recalculation workflow. *(Not implemented; requires test infrastructure.)*
 
-8. **Invalidate WooCommerce caches after recalculation** (P2) — After updating product meta, call `wc_delete_product_transients()` or equivalent to clear stale price caches. *(Not implemented in this task; requires runtime verification of impact.)*
+8. **Scope JavaScript loading to relevant admin screens** (P2) — Load the admin JS only on product edit screens where the currency fields are present. *(Not implemented; out of scope.)*
+
+9. **Invalidate WooCommerce caches after recalculation** (P2) — After updating product meta, call `wc_delete_product_transients()` or equivalent to clear stale price caches. *(Resolved as a side effect of the CRUD API fix in Task 02 and `WC_Product_Variable::sync()` in Task 03.)*
 
 ---
 
 ## 4. Issues Outside the Scope of This Task
 
-The following issues were identified during the audit but are **not** addressed in this task (P1 recalculation fixes):
+The following issues were identified during the audit but are **not** addressed in the P1 recalculation fixes (Tasks 01–03):
 
 - Duplicate `woocommerce_admin_process_product_object` handler (P2, code quality).
 - Variation JavaScript selector inconsistencies (P2, requires runtime verification).
@@ -129,7 +144,11 @@ The following issues were identified during the audit but are **not** addressed 
 - Missing automated tests and project documentation (P2).
 - JavaScript loaded on broader admin screens than necessary (P2, performance).
 - Security hardening opportunities (see Section 5).
-- WooCommerce cache/lookup table invalidation after recalculation (P2, requires runtime verification).
+
+**Previously listed but now resolved:**
+- ~~WooCommerce cache/lookup table invalidation after recalculation~~ — **Resolved** in Tasks 02–03 (CRUD API + `WC_Product_Variable::sync()`).
+- ~~Stale `_price` after recalculation~~ — **Resolved** in Tasks 02–03 (CRUD API + `WC_Product_Variable::sync()`).
+- ~~Variable product parent price range staleness~~ — **Resolved** in Task 03 (`WC_Product_Variable::sync()`).
 
 ---
 
@@ -165,14 +184,20 @@ Admin-screen output uses `esc_attr()` and `esc_html()` where appropriate. No act
 
 ## 6. Test Environment Status
 
-**No disposable WordPress + WooCommerce test environment was available for this audit.**
+**A live local WordPress + WooCommerce environment was used for runtime testing in Tasks 01–03.**
 
-- Docker is available (v29.9.3) but no WordPress containers are running.
-- WP-CLI is available (v2.12.0) but no WordPress installation is configured for it.
-- Three Studio sites exist (`kafshkohestan`, `my-wordpress-website`, `newaniblocksy`) with WooCommerce installed, but none are confirmed to be disposable test environments.
-- PHPUnit is not installed.
+| Item | Value |
+|---|---|
+| Test site | `http://anishop-package-test.local` (Local by Flywheel) |
+| WordPress | 7.1.4 |
+| WooCommerce | 11.2.2 |
+| PHP | 8.3.30 |
+| Plugin under test | `ani-navasan-lite` 1.0.0 (installed from local source, branch `fix/recalculation-p1`) |
+| Original Navasan plugin | **Not installed** (no conflict) |
+| Access method | **WP-CLI 2.12.0** (Novamira MCP tools were not loaded into the AI session) |
+| Node.js | v22.23.4 (for JS rounding equivalence) |
 
-**Consequence:** All findings in this audit are based on static code analysis. Runtime behavior (especially the stale `_price` issue) has not been verified in a live environment.
+**Consequence:** All P1 findings in this audit have been runtime-verified in a live environment. The stale `_price` issue, the variable product parent price range staleness, and the cache/lookup table staleness were all confirmed and resolved. See `2026-11-10-recalculation-p1.md` for the full test results.
 
 ---
 
@@ -186,8 +211,11 @@ Admin-screen output uses `esc_attr()` and `esc_html()` where appropriate. No act
 | `admin/metabox.php` | Product/variation metabox fields, save handlers |
 | `assets/js/admin.js` | Client-side price calculation and preview |
 | `woocommerce/includes/abstracts/abstract-wc-product.php` | WC `get_price()` implementation |
-| `woocommerce/includes/class-wc-product-variable.php` | WC variable product price range |
+| `woocommerce/includes/class-wc-product-variable.php` | WC variable product price range, `sync()` method |
 | `woocommerce/includes/data-stores/class-wc-product-variable-data-store-cpt.php` | WC `read_price_data()` implementation |
-| `woocommerce/includes/data-stores/class-wc-product-data-store-cpt.php` | WC data store `_price` sync logic |
+| `woocommerce/includes/data-stores/class-wc-product-data-store-cpt.php` | WC data store `_price` sync logic, `handle_updated_props()` |
+| `woocommerce/includes/data-stores/class-wc-data-store-wp.php` | WC lookup table update logic |
+| `woocommerce/includes/wc-product-functions.php` | WC `wc_update_product` function, `_price` sync workaround |
+| `woocommerce/includes/legacy/abstract-wc-legacy-product.php` | WC legacy product `sync_attributes()` implementation |
 
 

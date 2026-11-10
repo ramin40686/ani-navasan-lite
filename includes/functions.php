@@ -86,15 +86,18 @@ add_action('ani_navasan_lite_recalc_currency', function ($currency_id, $rate = n
         }
     }
 
-    // همگام‌سازی قیمت فعال (_price) محصولات متغیر والد با حداقل قیمت وریشن‌ها
+    // همگام‌سازی قیمت فعال (_price) محصولات متغیر والد با وریشن‌ها
+    // استفاده از API استاندارد ووکامرس (WC_Product_Variable::sync) به‌جای set_price + save:
+    // - set_price + save برای محصولات متغیر، متای _price را به‌روزرسانی نمی‌کند
+    //   (چون _price در meta_key_to_props نیست و handle_updated_props آن را برای
+    //   محصولات متغیر/گروهی نادیده می‌گیرد).
+    // - WC_Product_Variable::sync متای _price را به‌صورت چند ردیف (یک ردیف برای هر
+    //   قیمت متمایز وریشن) به‌روزرسانی می‌کند، جدول lookup (wc_product_meta_lookup)
+    //   را همگام می‌سازد، وضعیت موجودی را همگام می‌کند و کاش‌ها را پاک می‌کند.
     foreach (array_keys($parent_ids) as $parent_id) {
         $parent = wc_get_product($parent_id);
         if ($parent && $parent->is_type('variable')) {
-            $min_price = $parent->get_variation_price('min');
-            if ($min_price !== '' && $min_price !== null) {
-                $parent->set_price($min_price);
-                $parent->save();
-            }
+            WC_Product_Variable::sync($parent);
         }
     }
 }, 10, 2);
