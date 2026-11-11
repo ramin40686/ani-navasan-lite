@@ -19,7 +19,10 @@ Thumbs.db
 
 # Cline / AI
 .cline/
-.clinerules/
+# Keep the persistent project Memory Bank under version control;
+# other .clinerules/ files (local instructions/skills) stay ignored.
+.clinerules/*
+!.clinerules/memory-bank.md
 
 # Secrets
 .env
