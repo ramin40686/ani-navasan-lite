@@ -1,6 +1,14 @@
 jQuery(document).ready(function ($) {
 
     // ============================
+    // helper: گرد کردن قیمت تومانی به نزدیک‌ترین ۱۰۰۰ تومان
+    // سیاست گرد کردن نهایی: تمام قیمت‌های تومانی نهایی به نزدیک‌ترین ۱۰۰۰ تومان گرد می‌شوند.
+    // ============================
+    function mnswmcRoundToThousand(value) {
+        return Math.round((parseFloat(value) || 0) / 1000) * 1000;
+    }
+
+    // ============================
     // helper: پیدا کردن regular price ساده
     // ============================
     function findSimpleRegularPrice() {
@@ -70,8 +78,8 @@ jQuery(document).ready(function ($) {
 
         function applySimpleRate(rate, basePrice, minPriceCurrency) {
             rate = parseFloat(rate) || 0;
-            const regularToman  = Math.round(basePrice * rate);
-            const minPriceToman = Math.round(minPriceCurrency * rate);
+            const regularToman  = mnswmcRoundToThousand(basePrice * rate);
+            const minPriceToman = mnswmcRoundToThousand(minPriceCurrency * rate);
 
             // مقداردهی به فیلد قیمت اصلی تومانی (با یافتن مقاوم)
             const $regularInput = findSimpleRegularPrice();
@@ -179,8 +187,8 @@ jQuery(document).ready(function ($) {
             const minVal = parseFloat($minPriceCurrency.val()) || 0;
 
             if (rate > 0 && priceVal > 0) {
-                const final = Math.round(rate * priceVal);
-                const minFinal = (minVal > 0) ? Math.round(rate * minVal) : '';
+                const final = mnswmcRoundToThousand(rate * priceVal);
+                const minFinal = (minVal > 0) ? mnswmcRoundToThousand(rate * minVal) : '';
 
                 $preview.find('.rate').text(rate ? rate.toLocaleString() : '-');
                 $preview.find('.final').text(final ? final.toLocaleString() : '-');
@@ -344,52 +352,4 @@ jQuery(document).ready(function ($) {
         }, 80);
     });
 
-});
-
-// ============================
-// ذخیره‌سازی فیلدهای سفارشی ورییشن
-// ============================
-$(document).on('woocommerce_variations_save_variations', function (event, $form) {
-    $form.find('.woocommerce_variation').each(function () {
-        const $variation = $(this);
-        const variationId = $variation.find('input.variable_post_id').val();
-
-        if (!variationId) return;
-
-        // فیلدهای سفارشی ما
-        const $active = $variation.find('#_mnswmc_active_' + variationId);
-        const $currency = $variation.find('#_mnswmc_currency_id_' + variationId);
-        const $price = $variation.find('#_mnswmc_regular_price_' + variationId);
-        const $minPriceCurrency = $variation.find('#_torob_scraper_min_price_currency_' + variationId);
-
-        // داده‌ها رو به hidden input مناسب اضافه کنیم
-        if ($active.length) {
-            $('<input>').attr({
-                type: 'hidden',
-                name: 'variable_mnswmc_active[' + variationId + ']',
-                value: $active.is(':checked') ? 'yes' : ''
-            }).appendTo($variation);
-        }
-        if ($currency.length) {
-            $('<input>').attr({
-                type: 'hidden',
-                name: 'variable_mnswmc_currency_id[' + variationId + ']',
-                value: $currency.val() || ''
-            }).appendTo($variation);
-        }
-        if ($price.length) {
-            $('<input>').attr({
-                type: 'hidden',
-                name: 'variable_mnswmc_regular_price[' + variationId + ']',
-                value: $price.val() || ''
-            }).appendTo($variation);
-        }
-        if ($minPriceCurrency.length) {
-            $('<input>').attr({
-                type: 'hidden',
-                name: 'variable_torob_scraper_min_price_currency[' + variationId + ']',
-                value: $minPriceCurrency.val() || ''
-            }).appendTo($variation);
-        }
-    });
 });

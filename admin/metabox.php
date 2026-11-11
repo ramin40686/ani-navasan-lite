@@ -154,14 +154,14 @@ add_action('woocommerce_admin_process_product_object', function ($product) {
                 $currency_price = floatval($currency_price);
 
                 if ($rate > 0 && $currency_price > 0) {
-                    $toman = round($rate * $currency_price);
+                    $toman = ani_navasan_round_to_thousand($rate * $currency_price);
 
                     $product->set_regular_price($toman);
                     $product->set_price($toman);
 
                     $min_price_currency = $product->get_meta('_torob_scraper_min_price_currency', true);
                     if ($min_price_currency !== '') {
-                        $min_toman = round(floatval($min_price_currency) * $rate);
+                        $min_toman = ani_navasan_round_to_thousand(floatval($min_price_currency) * $rate);
                         $product->update_meta_data('_torob_scraper_min_price', $min_toman);
                     }
                 }
@@ -169,62 +169,6 @@ add_action('woocommerce_admin_process_product_object', function ($product) {
         }
     } catch (Exception $e) {}
 });
-
-/**
- * ✅ ذخیره مقادیر برای محصولات ساده
- */
-add_action('woocommerce_admin_process_product_object', function ($product) {
-    $fields = array(
-        '_mnswmc_active',
-        '_mnswmc_currency_id',
-        '_mnswmc_regular_price',
-        '_torob_scraper_min_price',
-        '_torob_scraper_min_price_currency',
-    );
-
-    foreach ($fields as $field) {
-        if (isset($_POST[$field])) {
-            $value = wc_clean($_POST[$field]);
-            $product->update_meta_data($field, $value);
-        } else {
-            if ($field === '_mnswmc_active') {
-                $product->update_meta_data($field, 'no');
-            }
-        }
-    }
-
-    // همیشه نوع وابستگی = simple
-    $product->update_meta_data('_mnswmc_dependence_type', 'simple');
-
-    // ---------- محاسبه سروری (fallback) ----------
-    try {
-        $active = $product->get_meta('_mnswmc_active', true);
-        if ($active === 'yes') {
-            $currency_id = $product->get_meta('_mnswmc_currency_id', true);
-            $currency_price = $product->get_meta('_mnswmc_regular_price', true);
-
-            if ($currency_id && $currency_price !== '') {
-                $rate = get_post_meta(intval($currency_id), '_mnswmc_rate', true);
-                $rate = $rate === '' ? 0 : floatval($rate);
-                $currency_price = floatval($currency_price);
-
-                if ($rate > 0 && $currency_price > 0) {
-                    $toman = round($rate * $currency_price);
-
-                    $product->set_regular_price($toman);
-                    $product->set_price($toman);
-
-                    $min_price_currency = $product->get_meta('_torob_scraper_min_price_currency', true);
-                    if ($min_price_currency !== '') {
-                        $min_toman = round(floatval($min_price_currency) * $rate);
-                        $product->update_meta_data('_torob_scraper_min_price', $min_toman);
-                    }
-                }
-            }
-        }
-    } catch (Exception $e) {}
-});
-
 
 // ✅ اضافه کردن فیلدها به متغیرها (محصولات متغیر)
 add_action('woocommerce_product_after_variable_attributes', function ($loop, $variation_data, $variation) {
@@ -346,14 +290,14 @@ add_action('woocommerce_save_product_variation', function ($variation_id, $i) {
                 $currency_price = floatval($currency_price);
 
                 if ($rate > 0 && $currency_price > 0) {
-                    $toman = round($rate * $currency_price);
+                    $toman = ani_navasan_round_to_thousand($rate * $currency_price);
 
                     update_post_meta($variation_id, '_regular_price', $toman);
                     update_post_meta($variation_id, '_price', $toman);
 
                     $min_price_currency = get_post_meta($variation_id, '_torob_scraper_min_price_currency', true);
                     if ($min_price_currency !== '') {
-                        $min_toman = round(floatval($min_price_currency) * $rate);
+                        $min_toman = ani_navasan_round_to_thousand(floatval($min_price_currency) * $rate);
                         update_post_meta($variation_id, '_torob_scraper_min_price', $min_toman);
                     }
                 }
