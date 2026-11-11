@@ -202,6 +202,8 @@ After all scenarios, the site was restored to its exact pre-test state:
 
 The real WordPress admin UI (browser) was **not** tested in Task 07 — only the save *callback* path was exercised via WP-CLI. This section provides a precise, executable manual test for the **user** to run in a browser. Every step below is based on the **actual plugin code** (real field IDs, labels, metabox titles, and save handlers), not on assumptions.
 
+**Safety mechanism (proven):** a standalone backup/restore/verify cycle (see §8.13) was built and round-trip tested on the local site. The manual test is **gated** on it: a successful backup (§8.2) is a hard prerequisite before any change, and a passing verify (§8.11) is the completion gate confirming the four products returned to their initial state.
+
 > **Do not run this test as Cline/automated.** It is intentionally left for the user to perform in a real browser. If any step produces an unexpected result, record the exact field values, the currency rate, and the product ID, and report it — do not guess.
 
 ### 8.1 Scope and Safety Constraints
@@ -224,29 +226,43 @@ The real WordPress admin UI (browser) was **not** tested in Task 07 — only the
 
 ### 8.2 Step 0 — Back up the initial state (BEFORE any change)
 
-Record the current state of the four products before touching anything. A read-only WP-CLI dump is the most reliable:
+**This step is a hard prerequisite.** Do not proceed to §8.3 until the backup below has run successfully and the verify baseline (last command) reports `ALL SECTIONS PASS`.
+
+A full, raw backup of the four products (and any existing `mnswmc` currencies) is taken with the standalone script `/tmp/task07-manual/backup.php`. It captures, byte-for-byte:
+
+- **All raw `postmeta` rows** for the four products — including duplicate rows and raw (base64-encoded) values, so serialized meta such as `_product_attributes` is preserved exactly (no re-serialization).
+- **All `wp_posts` columns** for the four products.
+- **`wp_wc_product_meta_lookup` rows** for the four products.
+- **Existing `mnswmc` currencies** (posts + meta) — so the pre-test currency state is recorded.
+
+Run it from the site root:
 
 ```
-for id in 17613 17615 17616 17617; do
-  echo "=== product $id ==="
-  wp post meta get $id _regular_price
-  wp post meta get $id _price
-  wp post meta get $id _mnswmc_active
-  wp post meta get $id _mnswmc_currency_id
-  wp post meta get $id _mnswmc_regular_price
-  wp post meta get $id _mnswmc_dependence_type
-  wp post meta get $id _torob_scraper_min_price
-  wp post meta get $id _torob_scraper_min_price_currency
-done
+cd "/home/ramin/Local Sites/anishop-package-test/app/public"
+/home/ramin/.local/bin/wp eval-file /tmp/task07-manual/backup.php --allow-root
 ```
 
-Also record the current currency list (there should be `0` `mnswmc` records at the start):
+Expected output:
 
 ```
-wp post list --post_type=mnswmc --field=ID
+Backup created: /tmp/task07-manual/backup/backup-<timestamp>.json
+Products captured: 4
+Postmeta rows captured: <N>
+Lookup rows captured: <N>
+Currencies captured: <N>
 ```
 
-> **Note:** the four products currently carry stale `_mnswmc_*` meta referencing non-existent currency IDs (`4168`/`15939`). Record these exact values so they can be restored byte-for-byte. For a full raw backup (recommended), dump **all** postmeta for the four products to a JSON file so structured/serialized meta (e.g. `_product_attributes`) can be restored without corruption.
+The backup is written to `/tmp/task07-manual/backup/backup-<timestamp>.json` and copied to `/tmp/task07-manual/backup/latest.json` (the file the restore/verify scripts read).
+
+**Confirm the backup is valid** by running the verify script immediately (it compares the current state against the backup, so it must pass with zero changes):
+
+```
+/home/ramin/.local/bin/wp eval-file /tmp/task07-manual/verify.php --allow-root
+```
+
+Expected: `RESULT: ALL SECTIONS PASS — state matches backup exactly.` (exit code `0`).
+
+> **Note:** the four products currently carry stale `_mnswmc_*` meta referencing non-existent currency IDs (`4168`/`15939`). The backup captures these exact raw values, so they are restored byte-for-byte. Volatile WordPress editing fields (`_edit_lock`, `_edit_last`, `_wp_old_*`) are excluded from the verify comparison because they change on edit/save and are not meaningful product data.
 
 ---
 
@@ -358,18 +374,49 @@ wp post list --post_type=mnswmc --field=ID
 2. Confirm the `mnswmc` count returns to its pre-test value (`0`): `wp post list --post_type=mnswmc --field=ID`.
 
 **Restore the four products to their initial state:**
-1. For each of `17613`, `17615`, `17616`, `17617`, restore the exact original meta values recorded in §8.2:
-   - `_regular_price`, `_price` → original values
-   - `_mnswmc_active` → original value
-   - `_mnswmc_currency_id` → original value (the stale `4168`/`15939` or empty)
-   - `_mnswmc_regular_price` → original value
-   - `_mnswmc_dependence_type` → original value
-   - `_torob_scraper_min_price`, `_torob_scraper_min_price_currency` → original values
-2. The most reliable method is to re-insert the exact original raw meta rows (byte-for-byte) via a WP-CLI script, so structured/serialized meta (e.g. `_product_attributes`) is not corrupted. (Pass the **unserialized** array to `update_post_meta()` — WordPress serializes it exactly once.)
-3. Clear caches: `wp cache flush`, and re-check the product pages.
 
-**Final verification (read-only):**
-- All four products' prices match the §8.2 backup.
+Run the standalone restore script `/tmp/task07-manual/restore.php`. It reads `/tmp/task07-manual/backup/latest.json` and, inside a single DB transaction, restores the four products (and any existing currencies) to the exact backed-up state:
+
+- **`postmeta`** — deletes all rows for the four products, then re-inserts the exact raw rows (base64-decoded to the original bytes). This guarantees **no double serialization**, **no empty meta**, and **no duplicate meta**.
+- **`wp_posts`** — updates each product's columns to the backed-up values.
+- **`wp_wc_product_meta_lookup`** — resets each product's row to the backed-up values (removes any row the test created).
+- **Existing currencies** — restores the currencies present in the backup. The temporary test currency (not in the backup) is left for the manual deletion above.
+
+If anything fails, the transaction is rolled back and no partial restore is left behind.
+
+```
+cd "/home/ramin/Local Sites/anishop-package-test/app/public"
+/home/ramin/.local/bin/wp eval-file /tmp/task07-manual/restore.php --allow-root
+```
+
+Expected output:
+
+```
+Restore completed successfully (transaction committed).
+Products restored: 4
+Currencies restored: <N>
+```
+
+Then clear caches and re-check the product pages: `wp cache flush`.
+
+**Final verification (read-only) — REQUIRED:**
+
+Run the verify script. It compares the current database state against the backup, **section by section** (postmeta, `wp_posts`, lookup, currencies), and reports each section separately:
+
+```
+/home/ramin/.local/bin/wp eval-file /tmp/task07-manual/verify.php --allow-root
+```
+
+The manual test is only complete when this reports:
+
+```
+RESULT: ALL SECTIONS PASS — state matches backup exactly.
+```
+
+(exit code `0`). If any section reports `FAIL`, the four products have **not** fully returned to their initial state — do not consider the test finished; record the failing section and values.
+
+**Final verification checklist:**
+- Verify script reports `ALL SECTIONS PASS` (all four products match the §8.2 backup).
 - The test currency is deleted; the `mnswmc` count is back to its pre-test value.
 - No other product was modified.
 
@@ -381,6 +428,31 @@ The following could **not** be confirmed from the code or the local environment 
 - Any theme-specific price rendering on the frontend.
 
 If any step produces an unexpected result, record the exact field values, the currency rate, and the product ID, and report it — do not guess.
+
+### 8.13 Backup / Restore / Verify Scripts and Round-Trip Proof
+
+To make the manual test safe and reversible, three standalone scripts were created **outside the repository** (in `/tmp/task07-manual/`, not committed to Git):
+
+| Script | Purpose |
+|---|---|
+| `/tmp/task07-manual/backup.php` | Full raw backup of the four products + existing currencies → `/tmp/task07-manual/backup/latest.json`. |
+| `/tmp/task07-manual/restore.php` | Restores the four products + existing currencies from the backup, inside a single DB transaction (rollback on failure). |
+| `/tmp/task07-manual/verify.php` | Compares current DB state against the backup, section by section (postmeta, `wp_posts`, lookup, currencies); exit `0` only if all match. |
+
+**Round-trip test (executed on the local test site, 2026-11-11):**
+
+1. **Backup** taken → `Products captured: 4`, `Postmeta rows captured: 197`, `Lookup rows captured: 4`, `Currencies captured: 0`.
+2. **Baseline verify** → `ALL SECTIONS PASS` (exit `0`).
+3. **Controlled mutation** of product `17613` only (simulating the browser test + recalculation): `_regular_price` → `99999999`, lookup `min_price`/`max_price` → `88888888.0000`, and a new meta `_task07_test_meta` added.
+4. **Verify after mutation** → correctly reported `FAIL` for `17613` in both the postmeta section (3 differing pairs) and the lookup section (2 column differences); the other three products `PASS`.
+5. **Restore** → `Restore completed successfully (transaction committed). Products restored: 4`.
+6. **Verify after restore** → `ALL SECTIONS PASS` (exit `0`).
+7. **WooCommerce API sanity check** → all four products load correctly with intact attributes and correct prices (`17613` simple `19600000`; `17615` variable `33600000`; `17616` variation `33950000`; `17617` variation `33600000`); no double serialization or corruption.
+8. **Initial-state confirmation** → the post-restore state was compared against the very first (pre-test) backup; all non-volatile fields are identical, so the four products are exactly back to their initial state.
+
+**Conclusion:** the full **backup → (test) → restore → verify** cycle is **proven** in the local test environment. The manual browser test in §8.3–§8.11 is therefore **ready to execute**, with the successful backup in §8.2 as a hard prerequisite and the `ALL SECTIONS PASS` verify in §8.11 as the completion gate.
+
+> **Caveat:** the scripts live in `/tmp/task07-manual/`, which is temporary and may be cleared on reboot. If the scripts or the backup are missing when the manual test is run, re-create them (their full source is available in the task working notes) and re-run the §8.2 backup before starting.
 
 ---
 
@@ -410,6 +482,7 @@ If any step produces an unexpected result, record the exact field values, the cu
 
 - **Plugin source:** **none** (no plugin files created, modified, or deleted).
 - **Test harness (outside the repository, in `/tmp/task07/`):** `helpers.php`, `setup_currencies.php`, `setup_products.php`, `scenario1_simple.php`, `scenario2_variable.php`, `scenario3_disabled.php`, `scenario4_parent_sync.php`, `scenario5_rounding.php`, `scenario6_sale.php`, `scenario7_repeatability.php`, `backup.php`, `restore.php`, `verify_restore_final.php`, plus result/output artifacts (`backup.json`, `currency_ids.json`, `results_s*.json`, `s*.out`, `storeapi_*.json`, `verify_final.out`, `restore_report.json`).
+- **Manual-test safety scripts (outside the repository, in `/tmp/task07-manual/`, not committed to Git):** `backup.php`, `restore.php`, `verify.php`, `mutate.php` (controlled test mutation), `debug.php`, plus backup artifacts under `/tmp/task07-manual/backup/` (`backup-<timestamp>.json`, `latest.json`). See §8.13.
 - **Local site config:** `wp-config.php` temporarily modified (debug) and **restored** from backup.
 - **This report:** `docs/reports/2026-11-11-task-07-e2e-currency-recalculation.md` (new).
 
@@ -430,6 +503,7 @@ If any step produces an unexpected result, record the exact field values, the cu
 | Store API (HTTP) — 4 products | ✅ 4/4 |
 | Frontend product pages — 4 products | ✅ 4/4 |
 | Restore verification (backup comparison) | ✅ 49/49 |
+| Backup/restore/verify round-trip (safety cycle, §8.13) | ✅ proven (mutation detected → restore exact → verify passes; no double serialization) |
 | Final sanity check (plugin active, prices, currency count) | ✅ |
 
 **Not executed (and why):**
@@ -462,6 +536,7 @@ If any step produces an unexpected result, record the exact field values, the cu
 1. **The real `mnswmc` save workflow was tested** — currency creates/edits were driven through nonce + `wp_insert_post()` / `wp_update_post()` → `save_post_mnswmc` → `_mnswmc_rate` persistence → `ani_navasan_lite_recalc_currency`. Direct handler calls were avoided for the main proof of behavior.
 2. **The browser admin UI was NOT tested by Cline** — only the save callback path was exercised; the admin form/DOM remains unverified. A precise, code-based manual procedure for the user is provided in §8; Task 07 is not fully closed until that manual test is executed and its results recorded.
 3. **`wc_product_meta_lookup` assertions were inconsistent in the CLI context** (2 Scenario 1 checks failed; exact cause not confirmed) and were **not** used as the primary verification source; `_price`, `_regular_price`, the Store API, and frontend output were used instead.
+4. **The backup/restore/verify safety cycle was proven** on the local test site (round-trip: backup → controlled mutation → verify detects → restore → verify passes, with no double serialization and all four products loading correctly via the WooCommerce API). The manual browser test in §8 is therefore ready to execute, gated on a successful backup (§8.2) and a passing verify (§8.11). The two `wp_wc_product_meta_lookup` failures in item 3 are **unchanged** by this work.
 
 
 
