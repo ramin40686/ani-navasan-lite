@@ -4,7 +4,7 @@
 **Task:** Task 07 — End-to-End Currency Create/Edit → Recalculation, Parent Sync & Data Integrity
 **Repository:** `ramin40686/ani-navasan-lite`
 **Branch:** `test/task-07-e2e-currency-recalculation`
-**Status:** COMPLETE (test-only; no plugin source changes)
+**Status:** COMPLETE (test-only; no plugin source changes; browser verification executed and confirmed by user)
 
 ---
 
@@ -198,13 +198,13 @@ After all scenarios, the site was restored to its exact pre-test state:
 
 ---
 
-## 8. Manual Browser Verification — User Execution Required
+## 8. Manual Browser Verification (Executed & Confirmed by User)
 
-The real WordPress admin UI (browser) was **not** tested in Task 07 — only the save *callback* path was exercised via WP-CLI. This section provides a precise, executable manual test for the **user** to run in a browser. Every step below is based on the **actual plugin code** (real field IDs, labels, metabox titles, and save handlers), not on assumptions.
+The real WordPress admin UI (browser) was verified by the **user** in a real browser (see §8.14 for the confirmed result). The procedure below is based on the **actual plugin code** (real field IDs, labels, metabox titles, and save handlers), not on assumptions.
 
-**Safety mechanism (proven):** a standalone backup/restore/verify cycle (see §8.13) was built and round-trip tested on the local site. The manual test is **gated** on it: a successful backup (§8.2) is a hard prerequisite before any change, and a passing verify (§8.11) is the completion gate confirming the four products returned to their initial state.
+**Safety mechanism (proven):** a standalone backup/restore/verify cycle (see §8.13) was built and round-trip tested on the local site. The manual test was **gated** on it: a successful backup (§8.2) was a hard prerequisite before any change, and a passing verify (§8.11) was the completion gate confirming the four products returned to their initial state.
 
-> **Do not run this test as Cline/automated.** It is intentionally left for the user to perform in a real browser. If any step produces an unexpected result, record the exact field values, the currency rate, and the product ID, and report it — do not guess.
+> **Note:** this test was performed by the user in a real browser (not by Cline/automated). The user confirmed the success of all steps; see §8.14.
 
 ### 8.1 Scope and Safety Constraints
 
@@ -450,9 +450,27 @@ To make the manual test safe and reversible, three standalone scripts were creat
 7. **WooCommerce API sanity check** → all four products load correctly with intact attributes and correct prices (`17613` simple `19600000`; `17615` variable `33600000`; `17616` variation `33950000`; `17617` variation `33600000`); no double serialization or corruption.
 8. **Initial-state confirmation** → the post-restore state was compared against the very first (pre-test) backup; all non-volatile fields are identical, so the four products are exactly back to their initial state.
 
-**Conclusion:** the full **backup → (test) → restore → verify** cycle is **proven** in the local test environment. The manual browser test in §8.3–§8.11 is therefore **ready to execute**, with the successful backup in §8.2 as a hard prerequisite and the `ALL SECTIONS PASS` verify in §8.11 as the completion gate.
+**Conclusion:** the full **backup → (test) → restore → verify** cycle is **proven** in the local test environment. The manual browser test in §8.3–§8.11 was **executed and confirmed by the user** (see §8.14), with the successful backup in §8.2 as the hard prerequisite and the `ALL SECTIONS PASS` verify in §8.11 as the completion gate — both satisfied.
 
 > **Caveat:** the scripts live in `/tmp/task07-manual/`, which is temporary and may be cleared on reboot. If the scripts or the backup are missing when the manual test is run, re-create them (their full source is available in the task working notes) and re-run the §8.2 backup before starting.
+
+### 8.14 Browser Test Execution Result (User-Confirmed)
+
+The manual browser test described in §8.3–§8.11 was **executed by the user in a real browser**, and the user **confirmed the success of all steps**. This closes the browser-verification gap that remained after the CLI/automated verification.
+
+What was confirmed by the user (per the §8 procedure):
+
+- **Real currency admin UI:** a test currency was created and its rate saved through the real WordPress admin panel (مدیریت ارز نوسان لایت), exercising the actual `save_post_mnswmc` → `_mnswmc_rate` persistence → `ani_navasan_lite_recalc_currency` path in a browser (not via WP-CLI).
+- **Simple product (17613):** currency dependency was set and the calculated Toman price matched the expected value.
+- **Variation (17616):** currency dependency was set and the calculated Toman price matched the expected value.
+- **Rate change → recalculation:** changing the currency rate from the admin and saving recalculated the dependent product and variation prices as expected.
+- **Isolation (17617):** the variation that was **not** given currency dependency remained unchanged.
+- **Variable parent sync (17615):** the variable parent's price range was synchronized with its variations.
+- **Frontend:** the final Toman price was displayed correctly on the frontend.
+- **Cleanup:** the temporary test currency was deleted as instructed.
+- **Restore + verify:** the restore script was executed and the final verify ended with `ALL SECTIONS PASS`, confirming the four products returned to their initial state.
+
+> **Note on evidence:** the user confirmed the success of the full procedure. Specific per-step numeric outputs, the exact test-currency ID, and exact timestamps were not separately captured and are therefore **not** recorded here (no values are invented). The CLI/automated scenario results in §4 (70 checks: 68 passed, 2 failed) are unchanged; the two `wp_wc_product_meta_lookup` failures remain unresolved (see §7, §14).
 
 ---
 
@@ -505,16 +523,16 @@ To make the manual test safe and reversible, three standalone scripts were creat
 | Restore verification (backup comparison) | ✅ 49/49 |
 | Backup/restore/verify round-trip (safety cycle, §8.13) | ✅ proven (mutation detected → restore exact → verify passes; no double serialization) |
 | Final sanity check (plugin active, prices, currency count) | ✅ |
+| Browser-based admin UI test (§8.3–§8.11) | ✅ executed by the user in a real browser; all steps confirmed successful (§8.14) |
 
 **Not executed (and why):**
-- Browser-based admin UI testing — **not executed by Cline**; a precise manual procedure for the user is provided in §8 (pending user execution).
 - Automated regression tests (none exist; this was a live manual/CLI test).
 
 ---
 
 ## 14. Remaining Issues
 
-- **Browser-based admin UI verification — pending user execution.** The real WordPress admin UI was not tested by Cline. A precise, code-based manual procedure is provided in §8 for the user to run in a browser. Task 07 is **not fully closed** until this manual test is completed and its results recorded.
+- **`wp_wc_product_meta_lookup` assertions (2 Scenario 1 checks) remain unresolved.** The exact cause is **not confirmed** (consistent with a `wp eval-file` CLI-context effect but not definitively established). The browser-test confirmation does **not** resolve these; the lookup table was not used as a primary verification source.
 - **P1 (pre-existing, unchanged):** full end-to-end verification in an environment with the originally-referenced currency CPTs (`15939`/`4168`); compatibility testing across the full supported WP/WC/PHP matrix.
 - **P2 (pre-existing, unchanged):** live admin DOM verification of variation JS selectors; automated regression tests; plugin-specific nonce verification for product saving; i18n of hardcoded Persian admin strings.
 - **New observation (informational):** the authorized products carried stale `_mnswmc_*` meta referencing non-existent currency IDs (`4168`/`15939`) from an earlier test. This was faithfully preserved/restored (not cleaned, to keep the restore byte-for-byte). A future cleanup task could remove orphaned `_mnswmc_*` meta if desired.
@@ -534,9 +552,9 @@ To make the manual test safe and reversible, three standalone scripts were creat
 ## 16. Explicit Statements (per task requirement)
 
 1. **The real `mnswmc` save workflow was tested** — currency creates/edits were driven through nonce + `wp_insert_post()` / `wp_update_post()` → `save_post_mnswmc` → `_mnswmc_rate` persistence → `ani_navasan_lite_recalc_currency`. Direct handler calls were avoided for the main proof of behavior.
-2. **The browser admin UI was NOT tested by Cline** — only the save callback path was exercised; the admin form/DOM remains unverified. A precise, code-based manual procedure for the user is provided in §8; Task 07 is not fully closed until that manual test is executed and its results recorded.
+2. **The browser admin UI was verified by the user (not by Cline)** — Cline exercised only the save callback path via WP-CLI; the user then executed the full manual browser procedure in §8.3–§8.11 in a real browser and confirmed the success of all steps (§8.14). The admin form/DOM was exercised in a real browser by the user.
 3. **`wc_product_meta_lookup` assertions were inconsistent in the CLI context** (2 Scenario 1 checks failed; exact cause not confirmed) and were **not** used as the primary verification source; `_price`, `_regular_price`, the Store API, and frontend output were used instead.
-4. **The backup/restore/verify safety cycle was proven** on the local test site (round-trip: backup → controlled mutation → verify detects → restore → verify passes, with no double serialization and all four products loading correctly via the WooCommerce API). The manual browser test in §8 is therefore ready to execute, gated on a successful backup (§8.2) and a passing verify (§8.11). The two `wp_wc_product_meta_lookup` failures in item 3 are **unchanged** by this work.
+4. **The backup/restore/verify safety cycle was proven** on the local test site (round-trip: backup → controlled mutation → verify detects → restore → verify passes, with no double serialization and all four products loading correctly via the WooCommerce API). The manual browser test in §8 was **executed and confirmed by the user** (gated on a successful backup §8.2 and a passing verify §8.11, both satisfied; final verify = `ALL SECTIONS PASS`). The two `wp_wc_product_meta_lookup` failures in item 3 are **unchanged** by this work.
 
 
 
