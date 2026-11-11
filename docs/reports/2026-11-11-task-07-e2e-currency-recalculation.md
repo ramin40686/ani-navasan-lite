@@ -74,7 +74,7 @@ The test was driven through the **real `mnswmc` admin save workflow** (nonce + `
 
 | Scenario | Description | Result |
 |---|---|---|
-| **1** | Simple product recalculation (17613 ← TEST-A) | **9/11** (2 lookup-table checks failed — CLI limitation, see §7) |
+| **1** | Simple product recalculation (17613 ← TEST-A) | **9/11** (2 `wp_wc_product_meta_lookup` checks failed — cause not confirmed, see §7) |
 | **2** | Variation recalculation + isolation (17616 ← TEST-B, 17617 ← TEST-C) | **14/14** |
 | **3** | Disabled dependency is not recalculated (17613) | **3/3** |
 | **4** | Variable parent synchronization (17615) | **3/3** (+ Store API verified over HTTP) |
@@ -84,7 +84,7 @@ The test was driven through the **real `mnswmc` admin save workflow** (nonce + `
 | **Store API (HTTP)** | All four products | **4/4** |
 | **Frontend** | All four product pages | **4/4** |
 
-**Total scenario checks: 68, with 2 failures** — both in Scenario 1, both `wp_wc_product_meta_lookup` checks, both attributable to the CLI context (see §7), **not** to a recalculation defect.
+**Total scenario checks: 70 executed, 68 passed, 2 failed.** Both failures are in Scenario 1 and are both `wp_wc_product_meta_lookup` row assertions. The recalculated price values were correct in every scenario; the 2 failures concern only the lookup-table assertions. The exact root cause of these 2 failures is **not confirmed** — the observed behavior is consistent with a `wp eval-file` CLI-context effect, but this has not been definitively established (see §7).
 
 ### Scenario 1 — Simple product (17613 ← TEST-A)
 - TEST-A rate edited `1500 → 2000`.
@@ -191,14 +191,200 @@ After all scenarios, the site was restored to its exact pre-test state:
 ## 7. Known Limitations and CLI-Context Caveats
 
 1. **Browser admin UI not tested.** The real `mnswmc` save *callback* path was exercised (nonce + `wp_insert_post()` / `wp_update_post()` → `save_post_mnswmc`), but the actual admin form / DOM / browser UI was **not** tested. The variation admin-screen JavaScript selectors in particular remain unverified against a live admin DOM (a pre-existing P2 item).
-2. **`wp_wc_product_meta_lookup` is unreliable in this `wp eval-file` CLI context.** Lookup rows sometimes appeared with correct values, sometimes were missing, and direct product saves did not consistently create/update them. The 2 failed Scenario 1 checks were both lookup-table assertions. **Lookup-table behavior in CLI was therefore not used as a primary verification source**; `_price`, `_regular_price`, the Store API, and frontend output were used instead. This is a CLI-context limitation, **not** a recalculation defect.
+2. **`wp_wc_product_meta_lookup` assertions were inconsistent in this `wp eval-file` CLI context.** During the test, lookup rows sometimes appeared with correct values, sometimes were missing, and direct product saves did not consistently create/update them. The 2 failed Scenario 1 checks were both lookup-table assertions. **The exact root cause of these 2 failures is not confirmed** — the observed behavior is consistent with a `wp eval-file` CLI-context effect, but this has not been definitively established, and no definitive conclusion about a WP-CLI limitation is drawn. Because the lookup table was inconsistent in this context, it was **not** used as a primary verification source; `_price`, `_regular_price`, the Store API, and frontend output were used instead. The recalculated price values themselves were correct in all scenarios.
 3. **Store API schema class unavailable in CLI.** `Automattic\WooCommerce\StoreApi\Schemas\CV2\ProductSchema` is not loadable under `wp eval-file`, so the Store API was verified over HTTP rather than in-process.
 4. **`wc_version()` not available** in this WooCommerce version; `WC()->version` was used.
 
 
 ---
 
-## 8. Security Implications
+## 8. Manual Browser Verification — User Execution Required
+
+The real WordPress admin UI (browser) was **not** tested in Task 07 — only the save *callback* path was exercised via WP-CLI. This section provides a precise, executable manual test for the **user** to run in a browser. Every step below is based on the **actual plugin code** (real field IDs, labels, metabox titles, and save handlers), not on assumptions.
+
+> **Do not run this test as Cline/automated.** It is intentionally left for the user to perform in a real browser. If any step produces an unexpected result, record the exact field values, the currency rate, and the product ID, and report it — do not guess.
+
+### 8.1 Scope and Safety Constraints
+
+**Authorized products (only these may be modified):**
+
+| ID | Type | Role in this manual test |
+|---|---|---|
+| `17613` | simple | simple-product currency dependency |
+| `17615` | variable | variable parent (price-range sync) |
+| `17616` | variation (child of 17615) | variation currency dependency |
+| `17617` | variation (child of 17615) | **isolation control** — must stay unchanged |
+
+**Hard constraints:**
+- Do **NOT** modify any product other than the four above.
+- **Back up** the initial state of the four products **before** any change (§8.2).
+- Do **NOT** delete any existing currency. Only the temporary test currency created in this test may be deleted.
+- Do **NOT** modify any production data.
+- The test currency must be deleted and the four products restored at the end (§8.11).
+
+### 8.2 Step 0 — Back up the initial state (BEFORE any change)
+
+Record the current state of the four products before touching anything. A read-only WP-CLI dump is the most reliable:
+
+```
+for id in 17613 17615 17616 17617; do
+  echo "=== product $id ==="
+  wp post meta get $id _regular_price
+  wp post meta get $id _price
+  wp post meta get $id _mnswmc_active
+  wp post meta get $id _mnswmc_currency_id
+  wp post meta get $id _mnswmc_regular_price
+  wp post meta get $id _mnswmc_dependence_type
+  wp post meta get $id _torob_scraper_min_price
+  wp post meta get $id _torob_scraper_min_price_currency
+done
+```
+
+Also record the current currency list (there should be `0` `mnswmc` records at the start):
+
+```
+wp post list --post_type=mnswmc --field=ID
+```
+
+> **Note:** the four products currently carry stale `_mnswmc_*` meta referencing non-existent currency IDs (`4168`/`15939`). Record these exact values so they can be restored byte-for-byte. For a full raw backup (recommended), dump **all** postmeta for the four products to a JSON file so structured/serialized meta (e.g. `_product_attributes`) can be restored without corruption.
+
+---
+
+### 8.3 Step 1 — Create a test currency
+
+1. In the WordPress admin, open the menu **مدیریت ارز نوسان لایت** (Currencies). List URL: `wp-admin/edit.php?post_type=mnswmc`.
+2. Click **افزودن ارز جدید** (Add New). New-currency URL: `wp-admin/post-new.php?post_type=mnswmc`.
+3. In the **title** field, enter a clearly-identifiable name, e.g. `TEST-MANUAL (task07)`.
+4. In the **مشخصات ارز** (Currency Details) metabox:
+   - **نماد اختصاری (ISO)** — field `mnswmc_symbol` (text): enter e.g. `USD`.
+   - **نرخ ارز (به تومان)** — field `mnswmc_rate` (number, step `0.01`): enter the initial rate, e.g. `15000`.
+   - **نماد مرجع ووکامرس**: a read-only field fixed to `تومان` — do **not** change it.
+5. Click **Publish** / **ذخیره**.
+
+**Expected:** the currency is saved with `_mnswmc_rate = 15000`. Because no product is yet dependent on this currency, no recalculation occurs.
+
+> Record the new currency post ID (shown in the admin, or via `wp post list --post_type=mnswmc --field=ID`). You will need it for cleanup.
+
+### 8.4 Step 2 — Set currency dependency on the simple product (17613)
+
+1. Go to **Products → All Products** and open product `17613` for editing.
+2. In the **General** (همگانی) tab, scroll to the Ani Navasan Lite fields (the `ani-navasan-group` block):
+   - **کف قیمت فروش (تومانی)** — `_torob_scraper_min_price` (number): optional Toman floor price.
+   - **فعال‌سازی وابستگی ارزی** — `_mnswmc_active` (checkbox): **check** this box.
+   - **انتخاب ارز** — `_mnswmc_currency_id` (select): select the test currency you just created.
+   - **قیمت ارزی** — `_mnswmc_regular_price` (number, step `0.01`): enter the currency price, e.g. `100`.
+   - **کف قیمت فروش (ارزی)** — `_torob_scraper_min_price_currency` (number, step `0.01`): optional currency floor price.
+3. A live preview box (**پیش‌نمایش محاسبات**, `ani_navasan_preview`) should appear showing:
+   - نرخ ارز (rate): `15000`
+   - قیمت فروش نهایی (تومان) (final Toman price): `1,500,000` (100 × 15000, rounded to the nearest 1,000)
+   - کف قیمت فروش نهایی (تومان) (final Toman floor): shown only if a currency floor was set.
+4. Click **Update** (به‌روزرسانی) to save the product.
+
+**Expected:** after saving, `17613`'s `_regular_price` / `_price` = `1,500,000`; `_mnswmc_active = yes`; `_mnswmc_currency_id` = the test currency ID; `_mnswmc_regular_price = 100`; `_mnswmc_dependence_type = simple`.
+
+### 8.5 Step 3 — Set currency dependency on a variation (17616)
+
+1. Open the variable product `17615` for editing.
+2. In the **Variations** (ورییشن‌ها) tab, find variation `17616` and click **Edit** to expand it.
+3. In the variation's Ani Navasan Lite fields (the `ani-navasan-group` block inside the variation):
+   - **کف قیمت فروش (تومانی)** — `_torob_scraper_min_price_{loop}` (number): optional.
+   - **فعال‌سازی وابستگی ارزی** — `_mnswmc_active_{loop}` (checkbox): **check** this box.
+   - **انتخاب ارز** — `_mnswmc_currency_id_{loop}` (select): select the test currency.
+   - **قیمت ارزی** — `_mnswmc_regular_price_{loop}` (number, step `0.01`): enter the currency price, e.g. `200`.
+   - **کف قیمت فروش (ارزی)** — `_torob_scraper_min_price_currency_{loop}` (number, step `0.01`): optional.
+4. A live preview box (**پیش‌نمایش محاسبات**, `mnswmc-preview-{loop}`) should appear showing the rate and the final Toman price (`3,000,000` = 200 × 15000).
+5. Click **Update** to save the product (this saves all variations).
+
+**Expected:** variation `17616`'s `_regular_price` / `_price` = `3,000,000`; its `_mnswmc_active = yes`; `_mnswmc_currency_id` = the test currency ID; `_mnswmc_regular_price = 200`; `_mnswmc_dependence_type = variable`.
+
+> **Do NOT** set currency dependency on variation `17617` in this step — it is the isolation control and must remain unchanged (§8.8).
+
+---
+
+### 8.6 Step 4 — Verify the calculated price (simple + variation)
+
+1. In the product editor for `17613`, confirm the **Regular price** field now shows `1,500,000`.
+2. In the product editor for `17615`, confirm variation `17616`'s price shows `3,000,000`.
+3. (Optional, read-only) Verify via WP-CLI:
+   ```
+   wp post meta get 17613 _regular_price   # expect 1500000
+   wp post meta get 17616 _regular_price   # expect 3000000
+   ```
+
+### 8.7 Step 5 — Change the currency rate from the admin and save
+
+1. Go back to **مدیریت ارز نوسان لایت** and open the test currency for editing.
+2. In the **مشخصات ارز** metabox, change **نرخ ارز (به تومان)** (`mnswmc_rate`) from `15000` to a new value, e.g. `20000`.
+3. Click **Update** (به‌روزرسانی) to save the currency.
+
+**Expected:** saving the currency fires `ani_navasan_lite_recalc_currency`, which recalculates every product/variation dependent on this currency:
+- `17613`: 100 × 20000 = `2,000,000`
+- `17616`: 200 × 20000 = `4,000,000`
+- `17615` (parent): its price range is re-synced from its variations.
+
+### 8.8 Step 6 — Verify the dependent products changed (and others did not)
+
+1. Re-open product `17613`: the **Regular price** should now be `2,000,000`.
+2. Re-open product `17615`: variation `17616`'s price should now be `4,000,000`.
+3. **Isolation check (same parent):** variation `17617` (which was **not** given currency dependency) must be **unchanged** — its price should still be the original value recorded in §8.2.
+4. **Cross-currency isolation check:** any product dependent on a *different* currency must be unchanged. (In this test only the test currency is used, so this is implicitly satisfied — but confirm no other product's price changed.)
+5. (Optional, read-only) Verify via WP-CLI:
+   ```
+   wp post meta get 17613 _regular_price   # expect 2000000
+   wp post meta get 17616 _regular_price   # expect 4000000
+   wp post meta get 17617 _regular_price   # expect the original value (unchanged)
+   ```
+
+---
+
+### 8.9 Step 7 — Verify the price on the frontend
+
+1. Open the frontend product page for `17613` (its permalink). The displayed price should be `2,000,000` in **Toman**.
+2. Open the frontend product page for `17615`. The displayed price range should reflect the updated variation prices (including `4,000,000` for `17616`).
+3. Confirm the price is shown in **Toman** (the store's base currency), **not** in the test currency.
+
+### 8.10 Step 8 — (Optional) Verify the Store API
+
+1. (Read-only) Query the Store API for product `17613`:
+   ```
+   curl -s "http://anishop-package-test.local/wp-json/wc/store/v1/products/17613" | jq '.prices'
+   ```
+   The `price` field should reflect the recalculated Toman value (`2,000,000`, in the store's currency representation).
+
+### 8.11 Step 9 — Cleanup and restore
+
+**Delete the test currency:**
+1. Go to **مدیریت ارز نوسان لایت** and delete the test currency you created (the **only** currency that may be deleted).
+2. Confirm the `mnswmc` count returns to its pre-test value (`0`): `wp post list --post_type=mnswmc --field=ID`.
+
+**Restore the four products to their initial state:**
+1. For each of `17613`, `17615`, `17616`, `17617`, restore the exact original meta values recorded in §8.2:
+   - `_regular_price`, `_price` → original values
+   - `_mnswmc_active` → original value
+   - `_mnswmc_currency_id` → original value (the stale `4168`/`15939` or empty)
+   - `_mnswmc_regular_price` → original value
+   - `_mnswmc_dependence_type` → original value
+   - `_torob_scraper_min_price`, `_torob_scraper_min_price_currency` → original values
+2. The most reliable method is to re-insert the exact original raw meta rows (byte-for-byte) via a WP-CLI script, so structured/serialized meta (e.g. `_product_attributes`) is not corrupted. (Pass the **unserialized** array to `update_post_meta()` — WordPress serializes it exactly once.)
+3. Clear caches: `wp cache flush`, and re-check the product pages.
+
+**Final verification (read-only):**
+- All four products' prices match the §8.2 backup.
+- The test currency is deleted; the `mnswmc` count is back to its pre-test value.
+- No other product was modified.
+
+### 8.12 Information not verifiable from code / local environment
+
+The following could **not** be confirmed from the code or the local environment and should be checked during the manual test:
+- The exact rendered admin DOM / field layout in the user's browser (the variation JS selectors in particular have not been verified against a live admin DOM — a pre-existing P2 item).
+- The exact Store API price representation (minor units vs. major units) for the store's base currency.
+- Any theme-specific price rendering on the frontend.
+
+If any step produces an unexpected result, record the exact field values, the currency rate, and the product ID, and report it — do not guess.
+
+---
+
+## 9. Security Implications
 
 - **No plugin source files were modified** in this task. No security posture change.
 - The test helper generated a valid `mnswmc_nonce` and ran as the admin user, mirroring the real admin save path. No nonce bypass or capability escalation was introduced or observed.
@@ -207,20 +393,20 @@ After all scenarios, the site was restored to its exact pre-test state:
 
 ---
 
-## 9. Compatibility Implications
+## 10. Compatibility Implications
 
 - Verified against **WooCommerce 11.2.2 + WordPress 7.1.4 + PHP 8.3.30** only. Compatibility with other supported versions remains a pre-existing P1 item (not expanded by this task).
 - The recalculation workflow (CRUD API price updates, `WC_Product_Variable::sync($parent, false)` + explicit cache clearing, sale-price preservation, nearest-1,000-Toman rounding) behaved as documented in the Memory Bank. No new compatibility concerns were observed.
 
 ---
 
-## 10. Files Inspected
+## 11. Files Inspected
 
 - `includes/functions.php` (recalculation handler, rounding helper)
 - `includes/currencies-metabox.php` (currency save handler, `ani_navasan_lite_recalc_currency` firing)
 - `wp-config.php` (local test site; temporary debug settings)
 
-## 11. Files Created / Modified / Deleted
+## 12. Files Created / Modified / Deleted
 
 - **Plugin source:** **none** (no plugin files created, modified, or deleted).
 - **Test harness (outside the repository, in `/tmp/task07/`):** `helpers.php`, `setup_currencies.php`, `setup_products.php`, `scenario1_simple.php`, `scenario2_variable.php`, `scenario3_disabled.php`, `scenario4_parent_sync.php`, `scenario5_rounding.php`, `scenario6_sale.php`, `scenario7_repeatability.php`, `backup.php`, `restore.php`, `verify_restore_final.php`, plus result/output artifacts (`backup.json`, `currency_ids.json`, `results_s*.json`, `s*.out`, `storeapi_*.json`, `verify_final.out`, `restore_report.json`).
@@ -229,37 +415,39 @@ After all scenarios, the site was restored to its exact pre-test state:
 
 ---
 
-## 12. Tests Executed and Results
+## 13. Tests Executed and Results
 
 | Check | Result |
 |---|---|
-| Scenario 1 — simple product recalculation | ✅ 9/11 (2 lookup-table checks — CLI limitation, §7) |
+| Scenario 1 — simple product recalculation | 9/11 passed; 2 failed (`wp_wc_product_meta_lookup` assertions — cause not confirmed, §7) |
 | Scenario 2 — variation recalculation + isolation | ✅ 14/14 |
 | Scenario 3 — disabled dependency exclusion | ✅ 3/3 |
 | Scenario 4 — variable parent sync | ✅ 3/3 (+ Store API over HTTP) |
 | Scenario 5 — rounding PHP vs. JS | ✅ 16/16 |
 | Scenario 6 — sale-price preservation | ✅ 8/8 |
 | Scenario 7 — repeatability / no corruption | ✅ 15/15 |
+| **Scenario checks total** | **70 executed, 68 passed, 2 failed** (both failures: `wp_wc_product_meta_lookup`, cause not confirmed) |
 | Store API (HTTP) — 4 products | ✅ 4/4 |
 | Frontend product pages — 4 products | ✅ 4/4 |
 | Restore verification (backup comparison) | ✅ 49/49 |
 | Final sanity check (plugin active, prices, currency count) | ✅ |
 
 **Not executed (and why):**
-- Browser-based admin UI testing (out of scope; documented in §7).
+- Browser-based admin UI testing — **not executed by Cline**; a precise manual procedure for the user is provided in §8 (pending user execution).
 - Automated regression tests (none exist; this was a live manual/CLI test).
 
 ---
 
-## 13. Remaining Issues
+## 14. Remaining Issues
 
+- **Browser-based admin UI verification — pending user execution.** The real WordPress admin UI was not tested by Cline. A precise, code-based manual procedure is provided in §8 for the user to run in a browser. Task 07 is **not fully closed** until this manual test is completed and its results recorded.
 - **P1 (pre-existing, unchanged):** full end-to-end verification in an environment with the originally-referenced currency CPTs (`15939`/`4168`); compatibility testing across the full supported WP/WC/PHP matrix.
 - **P2 (pre-existing, unchanged):** live admin DOM verification of variation JS selectors; automated regression tests; plugin-specific nonce verification for product saving; i18n of hardcoded Persian admin strings.
 - **New observation (informational):** the authorized products carried stale `_mnswmc_*` meta referencing non-existent currency IDs (`4168`/`15939`) from an earlier test. This was faithfully preserved/restored (not cleaned, to keep the restore byte-for-byte). A future cleanup task could remove orphaned `_mnswmc_*` meta if desired.
 
 ---
 
-## 14. Git Branch, Commit, and Push Status
+## 15. Git Branch, Commit, and Push Status
 
 - **Branch:** `test/task-07-e2e-currency-recalculation` (created from `origin/main`).
 - **Commit:** the commit that adds this report on the task branch (a documentation-only commit; see `git log --oneline -1 test/task-07-e2e-currency-recalculation`).
@@ -269,11 +457,11 @@ After all scenarios, the site was restored to its exact pre-test state:
 
 ---
 
-## 15. Explicit Statements (per task requirement)
+## 16. Explicit Statements (per task requirement)
 
 1. **The real `mnswmc` save workflow was tested** — currency creates/edits were driven through nonce + `wp_insert_post()` / `wp_update_post()` → `save_post_mnswmc` → `_mnswmc_rate` persistence → `ani_navasan_lite_recalc_currency`. Direct handler calls were avoided for the main proof of behavior.
-2. **The browser admin UI was NOT tested** — only the save callback path was exercised; the admin form/DOM remains unverified.
-3. **`wc_product_meta_lookup` behavior in CLI was unreliable** and was **not** used as the primary verification source; `_price`, `_regular_price`, the Store API, and frontend output were used instead.
+2. **The browser admin UI was NOT tested by Cline** — only the save callback path was exercised; the admin form/DOM remains unverified. A precise, code-based manual procedure for the user is provided in §8; Task 07 is not fully closed until that manual test is executed and its results recorded.
+3. **`wc_product_meta_lookup` assertions were inconsistent in the CLI context** (2 Scenario 1 checks failed; exact cause not confirmed) and were **not** used as the primary verification source; `_price`, `_regular_price`, the Store API, and frontend output were used instead.
 
 
 

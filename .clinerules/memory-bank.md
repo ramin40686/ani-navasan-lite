@@ -2,7 +2,7 @@
 
 > I am Cline. My memory resets completely between sessions; this Memory Bank is my only link to previous work. **Read it fully at the start of every task.** It must reflect verified project state only — never record assumptions or unconfirmed root causes as facts.
 >
-> **Last updated:** 2026-11-11 (Task 06 — final merge, release `1.0.0`, and Memory Bank initialization).
+> **Last updated:** 2026-11-11 (Task 07 — E2E currency-recalculation verification report; CLI/automated verification complete, browser test pending user execution).
 
 ---
 
@@ -133,6 +133,7 @@ Development stages (all merged to `main` and released as **`1.0.0`**):
 - **Task 04** — read-only integrity investigation and metadata audit (no code changes; documented in the technical audit report).
 - **Task 05** — attribute restoration, duplicate-handler cleanup, obsolete JavaScript removal, and synchronization optimization (`sync($parent, false)` + explicit cache clearing). Commits `1199380` (code) and `c82e951` (docs).
 - **Task 06** — final merge, release `1.0.0`, and Memory Bank initialization. Merge commit `0f15660`; tag `1.0.0`.
+- **Task 07** — end-to-end currency create/edit → recalculation verification (**test-only; no plugin source changes**). The real `mnswmc` admin save workflow (nonce + `wp_insert_post()`/`wp_update_post()` → `save_post_mnswmc` → `_mnswmc_rate` persistence → `ani_navasan_lite_recalc_currency`) was exercised via WP-CLI. **70 scenario checks executed: 68 passed, 2 failed** — both failures are `wp_wc_product_meta_lookup` row assertions (exact cause **not confirmed**; consistent with a `wp eval-file` CLI-context effect but not definitively established). Simple-product, variation, variable-parent-sync, rounding (PHP vs. JS), sale-price-preservation, disabled-dependency-exclusion, and repeatability scenarios all passed. Store API (over HTTP) and frontend product pages verified for products `17613`/`17615`/`17616`/`17617`. Site fully restored (49/49 verification checks); temporary currencies `17624`/`17625`/`17626` deleted. **The browser admin UI was NOT tested** — a precise manual procedure is provided in the report (§8) and is **pending user execution**. Report: `docs/reports/2026-11-11-task-07-e2e-currency-recalculation.md`. Branch: `test/task-07-e2e-currency-recalculation` (pushed, **not merged**).
 
 **Release:** `1.0.0` — https://github.com/ramin40686/ani-navasan-lite/releases/tag/1.0.0
 
@@ -145,7 +146,7 @@ Detailed reports: `docs/reports/2026-11-10-technical-audit.md`, `docs/reports/20
 Genuinely unresolved items (prioritized). Do not mark any of these as completed unless actual implementation and verification exist.
 
 **P1 — important correctness/compatibility:**
-- Full end-to-end currency CPT rate editing + recalculation should be verified in an environment with valid currency posts (the local test site lacked the referenced currency CPTs `15939`/`4168`).
+- **Browser-based admin UI verification (Task 07) — pending user execution.** The real WordPress admin UI was not tested by Cline; a precise manual procedure is provided in the Task 07 report (§8). Task 07 is not fully closed until this manual test is completed and its results recorded.
 - Compatibility should be tested against explicitly selected supported WooCommerce, WordPress, and PHP versions (only WC 11.2.2 + PHP 8.3.30 were tested).
 
 **P2 — hardening and maintainability:**
@@ -160,3 +161,4 @@ Genuinely unresolved items (prioritized). Do not mark any of these as completed 
 **Known limitations (accepted):**
 - `WC_Product_Variable::sync($parent, false)` does not persist stock status — acceptable for the price-only recalculation flow, but a future stock-changing flow would need an explicit save or `sync_stock_status($parent, true)`.
 - The original double-serialization trigger remains unconfirmed.
+- **`wp_wc_product_meta_lookup` assertions were inconsistent in the `wp eval-file` CLI context** (2 Task 07 Scenario 1 checks failed; exact cause **not confirmed**). The lookup table was not used as a primary verification source; `_price`, `_regular_price`, the Store API, and frontend output were used instead.
