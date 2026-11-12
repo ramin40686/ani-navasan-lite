@@ -4,7 +4,7 @@
 **Task:** Task 08 — Docker-based PHP/WordPress/WooCommerce compatibility matrix (CLI smoke test)
 **Repository:** `ramin40686/ani-navasan-lite`
 **Branch:** `test/task-08-compatibility-matrix`
-**Status:** COMPLETE — full matrix green (8/8 environments, 32/32 checks each); no plugin behavior changes; header metadata fields added
+**Status:** COMPLETE (finalized) — full matrix green (8/8 environments, 32/32 checks each); no plugin behavior changes; header support-range fields added (`Requires at least` corrected to `7.0.8`); compatibility with the main Navasan plugin **BLOCKED/UNTESTED** (main plugin not installed on the target site)
 
 ---
 
@@ -80,7 +80,7 @@ The smoke test exercises the plugin's core runtime paths **without a browser**:
 Added the standard WordPress + WooCommerce support-range header fields, justified by the green matrix (§8):
 
 ```
- * Requires at least: 7.0
+ * Requires at least: 7.0.8
  * Requires PHP: 7.4
  * Tested up to: 7.1
  * WC requires at least: 9.6.2
@@ -88,6 +88,8 @@ Added the standard WordPress + WooCommerce support-range header fields, justifie
 ```
 
 This is metadata only — it does not alter runtime behavior.
+
+> **Note (finalization):** `Requires at least` was set to `7.0.8` (not `7.0`) because the lowest WordPress version actually tested in the matrix is `7.0.8`; there is no evidence of testing `7.0.0`. The value was corrected from an initial `7.0` to `7.0.8` to match the real test evidence.
 
 ### 5.2 Smoke-test fixes (`tests/compat/smoke-test.php`)
 
@@ -121,6 +123,7 @@ All fixes are to the **test harness**, not the plugin. They were required becaus
   - **WooCommerce:** 9.6.2, 11.2.2
 - The plugin uses only stable, documented WooCommerce CRUD APIs (`wc_get_product()`, `set_regular_price()`, `save()`, `WC_Product_Variable::sync()`) and WordPress core APIs; no version-conditional code paths were needed.
 - The only cross-version output observed was a **benign WooCommerce core notice** (`_load_textdomain_just_in_time` — translation loading too early), present identically in every environment and originating from WooCommerce, not this plugin. It does not affect functionality.
+- **Compatibility with the main Navasan plugin (`mns-woocommerce-rate-based-products`): BLOCKED / UNTESTED.** The main plugin is not installed on the target site (`anishop-package-test.local`) and its file is not available there, so a real coexistence/compatibility test could not be run. The source-level mutual-exclusivity guard (auto-deactivation when the main plugin is active) is **not** equivalent to a real compatibility test. A future test requires a ZIP or specific version of the main plugin.
 
 ---
 
@@ -165,8 +168,9 @@ Each environment is a throwaway Docker stack (WordPress + WooCommerce + the requ
 
 ## 10. Remaining Issues
 
-- **P2 (carried over):** live admin DOM verification of variation JS selectors.
-- **P2 (carried over):** automated regression test suite (this smoke test is a CLI harness, not a unit/integration suite).
+- **P1 (BLOCKED):** compatibility with the main Navasan plugin (`mns-woocommerce-rate-based-products`) is UNTESTED — the main plugin is not installed on the target site (`anishop-package-test.local`) and its file is not available there. A future test requires a ZIP or specific version of the main plugin.
+- **P2 (carried over → Task 09):** live admin DOM verification of variation/variable JS selectors.
+- **P2 (carried over → Task 10):** automated regression test suite (this smoke test is a CLI harness, not a unit/integration suite).
 - **P1 (carried over):** the two `wp_wc_product_meta_lookup` Task 07 assertions remain unresolved (cause not confirmed); out of scope for this task.
 - **Observation (out of scope, not changed):** `ani-navasan-lite.php` lines 36–37 contain a doubled `/**` (a malformed docblock opener). It is cosmetic, pre-existing, and does not affect behavior; left unchanged to keep this task's scope tight. Flagged for a future cleanup task.
 
