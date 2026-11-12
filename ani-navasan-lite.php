@@ -5,6 +5,11 @@
  * Version: 1.0.0
  * Author: ramin4068@gmail.com
  * Text Domain: ani-navasan-lite
+ * Requires at least: 7.0
+ * Requires PHP: 7.4
+ * Tested up to: 7.1
+ * WC requires at least: 9.6.2
+ * WC tested up to: 11.2.2
  */
 
 if (!defined('ABSPATH')) exit;

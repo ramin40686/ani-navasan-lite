@@ -2,7 +2,7 @@
 
 > I am Cline. My memory resets completely between sessions; this Memory Bank is my only link to previous work. **Read it fully at the start of every task.** It must reflect verified project state only — never record assumptions or unconfirmed root causes as facts.
 >
-> **Last updated:** 2026-11-11 (Task 07 — E2E currency-recalculation verification **COMPLETE**: CLI/automated verification (70 checks: 68 passed, 2 failed — both `wp_wc_product_meta_lookup`, cause not confirmed) + browser admin UI test executed and confirmed by the user; standalone backup/restore/verify safety cycle proven; final Restore + Verify = `ALL SECTIONS PASS`).
+> **Last updated:** 2026-11-12 (Task 08 — Docker-based PHP/WordPress/WooCommerce compatibility matrix **COMPLETE**: 8/8 environments PASS, 32/32 CLI smoke checks each (256 total, 0 failures); confirmed support range PHP 7.4–8.3 / WP 7.0.8–7.1.4 / WC 9.6.2–11.2.2; support-range header fields added to `ani-navasan-lite.php`; **no plugin behavior changes**).
 
 ---
 
@@ -135,9 +135,11 @@ Development stages (all merged to `main` and released as **`1.0.0`**):
 - **Task 06** — final merge, release `1.0.0`, and Memory Bank initialization. Merge commit `0f15660`; tag `1.0.0`.
 - **Task 07** — end-to-end currency create/edit → recalculation verification (**test-only; no plugin source changes**). The real `mnswmc` admin save workflow (nonce + `wp_insert_post()`/`wp_update_post()` → `save_post_mnswmc` → `_mnswmc_rate` persistence → `ani_navasan_lite_recalc_currency`) was exercised via WP-CLI. **70 scenario checks executed: 68 passed, 2 failed** — both failures are `wp_wc_product_meta_lookup` row assertions (exact cause **not confirmed**; consistent with a `wp eval-file` CLI-context effect but not definitively established). Simple-product, variation, variable-parent-sync, rounding (PHP vs. JS), sale-price-preservation, disabled-dependency-exclusion, and repeatability scenarios all passed. Store API (over HTTP) and frontend product pages verified for products `17613`/`17615`/`17616`/`17617`. Site fully restored (49/49 verification checks); temporary currencies `17624`/`17625`/`17626` deleted. **The browser admin UI was executed and confirmed by the user** — the user ran the full manual procedure in the report (§8.3–§8.11) in a real browser and confirmed the success of all steps (real currency admin UI + rate save → recalculation; simple-product and variation prices; rate change → recalculation; isolation of the non-dependent variation; variable parent sync; frontend display; test-currency deletion; final Restore + Verify = `ALL SECTIONS PASS`). **Standalone backup/restore/verify safety cycle** (scripts in `/tmp/task07-manual/`, outside the repo) was built and **round-trip proven** (backup → controlled mutation → verify detects → restore → verify passes; no double serialization; all 4 products load correctly via the WooCommerce API; post-restore state confirmed identical to the pre-test backup). The two `wp_wc_product_meta_lookup` failures above remain **unresolved** (cause not confirmed). Report: `docs/reports/2026-11-11-task-07-e2e-currency-recalculation.md`. Branch: `test/task-07-e2e-currency-recalculation` (pushed, **not merged**).
 
+- **Task 08** — Docker-based PHP/WordPress/WooCommerce compatibility matrix (**test-only; no plugin behavior changes**). Built a repeatable CLI smoke-test harness (`tests/compat/`: `smoke-test.php` 32 checks, `run-env.sh` single-env Docker runner, `run-matrix.sh` 8-env runner, `README.md`). Each environment is a throwaway Docker stack (WP + WC + requested PHP) with the plugin installed from the working tree; the smoke test runs via WP-CLI and covers bootstrap, CPT registration, currency create + recalc trigger, simple-product/variation recalc, variable-parent sync, sale-price preservation, disabled-dependency exclusion, PHP↔JS rounding consistency, the AJAX endpoint (nonce + `edit_products` capability), and admin metabox rendering. **Full matrix: 8/8 environments PASS, 32/32 checks each (256 total, 0 failures)** across PHP 7.4.33/8.0.30/8.1.34/8.2.35/8.3.36 × WP 7.0.8/7.1.4 × WC 9.6.2/11.2.2. **Confirmed support range: PHP 7.4–8.3, WP 7.0.8–7.1.4, WC 9.6.2–11.2.2.** Added support-range header fields to `ani-navasan-lite.php` (`Requires at least: 7.0`, `Requires PHP: 7.4`, `Tested up to: 7.1`, `WC requires at least: 9.6.2`, `WC tested up to: 11.2.2`). All smoke-test fixes were to the **test harness** (CLI does not replicate HTTP/AJAX/admin context): `DOING_AJAX` + `wp_die_ajax_handler` + output buffering for AJAX JSON; explicit require of WC `wc-meta-box-functions.php`; `trailingslashit( WC()->plugin_path() )`; and one wrong test expectation (`S5.1` `150000`→`180000`, a test bug — the plugin was correct). Generated `tests/compat/results/` artifacts are gitignored. Report: `docs/reports/2026-11-12-task-08-compatibility-matrix.md`. Branch: `test/task-08-compatibility-matrix` (pushed, **not merged**).
+
 **Release:** `1.0.0` — https://github.com/ramin40686/ani-navasan-lite/releases/tag/1.0.0
 
-Detailed reports: `docs/reports/2026-11-10-technical-audit.md`, `docs/reports/2026-11-10-recalculation-p1.md`, and `docs/reports/2026-11-11-final-merge-release.md`.
+Detailed reports: `docs/reports/2026-11-10-technical-audit.md`, `docs/reports/2026-11-10-recalculation-p1.md`, `docs/reports/2026-11-11-final-merge-release.md`, `docs/reports/2026-11-11-task-07-e2e-currency-recalculation.md`, and `docs/reports/2026-11-12-task-08-compatibility-matrix.md`.
 
 ---
 
@@ -146,12 +148,11 @@ Detailed reports: `docs/reports/2026-11-10-technical-audit.md`, `docs/reports/20
 Genuinely unresolved items (prioritized). Do not mark any of these as completed unless actual implementation and verification exist.
 
 **P1 — important correctness/compatibility:**
-- Compatibility should be tested against explicitly selected supported WooCommerce, WordPress, and PHP versions (only WC 11.2.2 + PHP 8.3.30 were tested).
 - **`wp_wc_product_meta_lookup` assertions (2 Task 07 Scenario 1 checks) remain unresolved** — exact cause **not confirmed** (consistent with a `wp eval-file` CLI-context effect but not definitively established). The browser-test confirmation does not resolve these; the lookup table was not used as a primary verification source.
 
 **P2 — hardening and maintainability:**
 - Variation admin-screen JavaScript selectors still need live admin DOM verification.
-- Automated regression tests should be introduced/expanded (none exist; live testing was manual via WP-CLI).
+- A CLI smoke-test harness now exists (`tests/compat/`, Task 08) covering the core runtime paths across the compatibility matrix; a full unit/integration regression suite (e.g., PHPUnit + WP test framework) still does not exist.
 - Plugin-specific nonce verification for product saving may need a separate security-hardening task.
 - Internationalization may need improvement (admin strings are currently hardcoded Persian).
 
