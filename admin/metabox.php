@@ -179,9 +179,11 @@ add_action('woocommerce_admin_process_product_object', function ($product) {
     }
 
     // نوع وابستگی ارزی (simple / advanced) — پیش‌فرض: simple
-    $dependence_type = isset($_POST['_mnswmc_dependence_type']) ? wc_clean($_POST['_mnswmc_dependence_type']) : 'simple';
+    // پیش‌فرض فقط زمانی اعمال می‌شود که مقدار معتبر قبلی ثبت نشده باشد
+    $dependence_type = isset($_POST['_mnswmc_dependence_type']) ? wc_clean($_POST['_mnswmc_dependence_type']) : '';
     if (!in_array($dependence_type, array('simple', 'advanced'), true)) {
-        $dependence_type = 'simple';
+        $existing_type = $product->get_meta('_mnswmc_dependence_type', true);
+        $dependence_type = in_array($existing_type, array('simple', 'advanced'), true) ? $existing_type : 'simple';
     }
     $product->update_meta_data('_mnswmc_dependence_type', $dependence_type);
 
@@ -248,7 +250,7 @@ add_action('woocommerce_product_after_variable_attributes', function ($loop, $va
         $current_type = 'advanced'; // مقدار قدیمی (legacy)
     }
     if (!in_array($current_type, array('simple', 'advanced'), true)) {
-        $current_type = 'advanced'; // پیش‌فرض Variation
+        $current_type = 'simple'; // پیش‌فرض Variation
     }
 
     woocommerce_wp_select(array(
@@ -365,10 +367,12 @@ add_action('woocommerce_save_product_variation', function ($variation_id, $i) {
         }
     }
 
-    // نوع وابستگی ارزی (simple / advanced) — پیش‌فرض: advanced
-    $dependence_type = isset($_POST['_mnswmc_dependence_type'][$i]) ? wc_clean($_POST['_mnswmc_dependence_type'][$i]) : 'advanced';
+    // نوع وابستگی ارزی (simple / advanced) — پیش‌فرض: simple
+    // پیش‌فرض فقط زمانی اعمال می‌شود که مقدار معتبر قبلی ثبت نشده باشد
+    $dependence_type = isset($_POST['_mnswmc_dependence_type'][$i]) ? wc_clean($_POST['_mnswmc_dependence_type'][$i]) : '';
     if (!in_array($dependence_type, array('simple', 'advanced'), true)) {
-        $dependence_type = 'advanced';
+        $existing_type = get_post_meta($variation_id, '_mnswmc_dependence_type', true);
+        $dependence_type = in_array($existing_type, array('simple', 'advanced'), true) ? $existing_type : 'simple';
     }
     update_post_meta($variation_id, '_mnswmc_dependence_type', $dependence_type);
 

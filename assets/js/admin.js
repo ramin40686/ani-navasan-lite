@@ -222,8 +222,9 @@ jQuery(document).ready(function ($) {
             const saleVal = parseFloat($salePrice.val()) || 0;
             const minVal = parseFloat($minPriceCurrency.val()) || 0;
 
-            if (rate > 0 && priceVal > 0) {
-                const final = mnswmcRoundToThousand(rate * priceVal);
+            // آپدیت preview (هر بخش مستقل از ورودی خودش به‌روزرسانی می‌شود)
+            if (rate > 0) {
+                const final = (priceVal > 0) ? mnswmcRoundToThousand(rate * priceVal) : '';
                 const saleFinal = (saleVal > 0) ? mnswmcRoundToThousand(rate * saleVal) : '';
                 const minFinal = (minVal > 0) ? mnswmcRoundToThousand(rate * minVal) : '';
 
@@ -231,8 +232,19 @@ jQuery(document).ready(function ($) {
                 $preview.find('.final').text(final ? final.toLocaleString() : '-');
                 $preview.find('.sale-final').text(saleFinal ? saleFinal.toLocaleString() : '-');
                 $preview.find('.min-final').text(minFinal ? minFinal.toLocaleString() : '-');
+            } else {
+                $preview.find('.rate').text('-');
+                $preview.find('.final').text('-');
+                $preview.find('.sale-final').text('-');
+                $preview.find('.min-final').text('-');
+            }
 
-                // مقداردهی به فیلدهای تومان مربوط به ورییشن (اگر وجود دارند)
+            // مقداردهی به فیلدهای تومان مربوط به ورییشن (فقط وقتی نرخ و قیمت عادی معتبر باشند)
+            if (rate > 0 && priceVal > 0) {
+                const final = mnswmcRoundToThousand(rate * priceVal);
+                const saleFinal = (saleVal > 0) ? mnswmcRoundToThousand(rate * saleVal) : '';
+                const minFinal = (minVal > 0) ? mnswmcRoundToThousand(rate * minVal) : '';
+
                 if ($regularTomanInput.length) {
                     $regularTomanInput.val(final).trigger('change');
                 }
@@ -242,11 +254,6 @@ jQuery(document).ready(function ($) {
                 if ($minTomanInput.length && minFinal !== '') {
                     $minTomanInput.val(minFinal).trigger('change');
                 }
-            } else {
-                $preview.find('.rate').text('-');
-                $preview.find('.final').text('-');
-                $preview.find('.sale-final').text('-');
-                $preview.find('.min-final').text('-');
             }
         }
 
