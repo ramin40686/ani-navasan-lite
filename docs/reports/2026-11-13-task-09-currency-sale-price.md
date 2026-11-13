@@ -214,9 +214,12 @@ No files were deleted. No other plugin files were touched.
 
 ## 12. Commit Hash
 
-(See git log after commit — to be filled in after the commit is created.)
+`867f65b` — "Task 09: align _mnswmc_dependence_type (simple/advanced) + currency sale price support"
 
 ## 13. Push Status
 
-(To be filled in after the push is completed.)
+**Pushed** to `origin/feat/task-09-currency-sale-price` (new branch, tracking set).
+Pull request URL: https://github.com/ramin40686/ani-navasan-lite/pull/new/feat/task-09-currency-sale-price
+
+**Not merged** — awaiting independent review and owner approval.
 
