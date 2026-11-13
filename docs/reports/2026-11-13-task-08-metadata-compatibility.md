@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-13
 **Branch:** `test/task-08-metadata-compatibility`
-**Status:** COMPLETE — implementation, live verification (17/17), and full compatibility matrix (8/8 environments, 296/296 checks) all passed
+**Status:** Phase 1 COMPLETE (rate-key alignment: live 17/17, matrix 8/8 envs, 296/296 checks). Phase 2 (final compatibility fixes) **PARTIALLY COMPLETE** — symbol & sale-price keys analyzed as **not equivalent** (no change, evidence in §14); ionCube 15.5 installed & verified; main plugin 7.12.0 installed but **activation BLOCKED** (unauthorized ionCube encoder); guard (simulated) PASS, bidirectional contract verified, regression 21/21 PASS. See §14.
 
 ---
 
@@ -181,3 +181,203 @@ The commit that adds the metadata-compatibility changes, the extended smoke test
 ## 13. Push Status
 
 Branch `test/task-08-metadata-compatibility` pushed to `origin`. **Not merged** (per project workflow: the project owner reviews via ChatGPT and makes the final decision).
+
+---
+
+## 14. Task 08 — Final Compatibility Fixes (Phase 2, 2026-11-13)
+
+**Objective:** complete the three remaining items of Task 08:
+1. Align the currency **symbol** metadata.
+2. Review and decide the **sale price** metadata.
+3. Install the main Navasan plugin + ionCube in the approved environment and run real bidirectional + Guard tests.
+
+**Approved environment:** `http://anishop-package-test.local` only (WP path `/home/ramin/Local Sites/anishop-package-test/app/public`). Authorized test products `17613`/`17615`/`17616`/`17617` and test currencies. No production changes.
+
+### 14.1 Environment & runtime identification
+
+- **Actual PHP runtime: 8.4.10** (both web php-fpm and CLI) — **not** the previously reported 8.3.36. The site is a **Local** site (lightning-services), not a Studio site.
+- WordPress **7.1.4**, WooCommerce **11.3.0**.
+- The site's php.ini is site-specific (`/home/ramin/.config/Local/run/vTKHuMGVX/conf/php/php.ini`), shared by the site's web (php-fpm) and CLI (via the `wp` wrapper, which resolves the same php.ini). Each Local site has its own php.ini, so modifying it affects **only this site**.
+
+### 14.2 ionCube Loader installation — DONE, VERIFIED
+
+- The main plugin requires ionCube Loader ≥ 12.0.0 (`includes/Requirements.php`: `IC_MIN = '12.0.0'`; also PHP ≥ 7.4, WP ≥ 6.0, WC ≥ 7.0 — all satisfied by the site).
+- Installed ionCube Loader **15.5** (`ioncube_loader_lin_8.4.so`) in a **site-specific** directory: `/home/ramin/Local Sites/anishop-package-test/ioncube/` (outside the web root; not shared with other sites).
+- Added `zend_extension = /home/ramin/Local Sites/anishop-package-test/ioncube/ioncube_loader_lin_8.4.so` as the **first line** of the site's php.ini (ionCube requires it to be the first entry). Backup: `php.ini.bak-task08b`.
+- **Verified in both runtimes:**
+  - Web (php-fpm): `{"php":"8.4.10","ioncube":"15.5"}` (via a temporary check file, removed immediately after).
+  - CLI: `PHP 8.4.10 | ionCube 15.5`.
+- php-fpm was restarted cleanly (the Local app supervisor restarted it; the site returned HTTP 200).
+- **No changes to other sites' PHP runtimes** (each site has its own php.ini; the `.so` is in a site-specific directory and is only referenced by this site's php.ini).
+
+### 14.3 Main plugin installation & activation — INSTALLED, ACTIVATION BLOCKED
+
+- Installed `mns-woocommerce-rate-based-products` **7.12.0** from `docs/sources/mns-woocommerce-rate-based-products.zip` (via `wp plugin install`).
+- **Activation fails with a fatal error (exit 255).** The PHP error log shows:
+  > `PHP Fatal error: The encoded file .../wp-content/plugins/mns-woocommerce-rate-based-products/includes/Core.php was created with an unauthorised copy of the ionCube PHP Encoder. Please contact legal@ioncube.com with details of the provider of this PHP script.`
+- **Root cause (evidence-based):** the ionCube-encrypted files in the ZIP (`includes/Core.php`, `includes/Helpers.php`, `includes/Admin/WooCommerce.php`, `includes/Admin/Settings.php`, `includes/RestApi.php`) were encoded with an **unauthorized (pirated) copy of the ionCube Encoder**. The legitimate ionCube Loader (15.5) **refuses to execute** such files.
+- The plugin's bootstrap (`mns_navasan_run()`) always loads the encrypted `Core.php` (`Core::instance()`), so **every load of the active plugin fatals**. The plugin cannot be activated or run in this environment.
+- **This is a licensing/provenance issue, not a PHP/WP/WC version incompatibility.** All of the plugin's stated requirements are satisfied by the site (PHP 8.4.10 ≥ 7.4, WP 7.1.4 ≥ 6.0, WC 11.3.0 ≥ 7.0, ionCube 15.5 ≥ 12.0).
+- **Consequence:** the main plugin cannot be activated, so the real bidirectional compatibility test and the real Guard test (with the main plugin actually active) are **BLOCKED**.
+
+### 14.4 Source analysis of the main plugin (readable files)
+
+The ZIP contains a mix of readable and ionCube-encrypted PHP files. The readable files (`mns-woocommerce-rate-based-products.php`, `includes/Requirements.php`, `includes/DB.php`, `includes/Admin/MetaBoxes.php`, `includes/Admin/PostTypes.php`, `templates/metaboxes/*.php`) provide the metadata contract:
+
+**Currency meta keys (on `mnswmc` posts):**
+- The DB layer (`includes/DB.php`) builds keys as `_` + `mnswmc_` + name. The Currency class (encrypted) maps short names to full field names.
+- **Confirmed from readable source** (`includes/Admin/PostTypes.php`, direct `meta_key` queries used for column sorting):
+  - `_mnswmc_currency_value` — base rate (the "value" field). **This independently confirms the rate key aligned in Phase 1 (§1–§13).**
+  - `_mnswmc_currency_lowest_rate`, `_mnswmc_currency_profit`, `_mnswmc_currency_fee`, `_mnswmc_currency_rate` (final rate).
+- The currency save handler (`includes/Admin/MetaBoxes.php::currency_save`) writes (via `$currency->update_meta(...)`): `rate_symbol` ← `$_POST['_mnswmc_currency_rate_symbol']`, `value` ← `$_POST['_mnswmc_currency_value']`, plus `calculation_type`, `formula_text`, `profit`, `fee`, `ratio`, `fixed`, `update_type`, `relation`, `connection`, `operation`, `calculation_order`, `lowest_rate`, `rounding_value`, `rounding_type`, `rounding_side`.
+
+**Product meta keys (on products/variations):**
+- `_mnswmc_active` ("Rate Based" checkbox) — same as Lite.
+- `_mnswmc_dependence_type` (`simple`/`advanced`) — Lite uses `simple`/`variable`.
+- `_mnswmc_currency_id` — same as Lite.
+- `_mnswmc_regular_price` ("Rate Price" — the currency-denominated regular price) — same as Lite.
+- `_mnswmc_sale_price` ("Sale Rate Price" — the currency-denominated sale price) — **Lite has no equivalent**.
+- `_mnswmc_profit_margin`, `_mnswmc_profit_type`, `_mnswmc_price_rounding`, `_mnswmc_rounding_type`, `_mnswmc_rounding_side`, `_mnswmc_ceil_price`, `_mnswmc_floor_price`, `_mnswmc_price_alert`.
+
+### 14.5 Symbol metadata — NOT EQUIVALENT (no change made)
+
+**Finding (evidence-based):** the two "symbol" keys are **not equivalent** — they store different concepts:
+
+| Plugin | Key | Concept | Example value |
+|---|---|---|---|
+| Lite | `_mnswmc_symbol` | The currency's **ISO symbol** (identifies the currency) | `USD`, `AED` |
+| Main | `_mnswmc_currency_rate_symbol` | The **display unit of the rate** (identifies the rate's unit) | `Toman` |
+
+**Evidence:**
+- Main plugin template (`templates/metaboxes/currency.php`): the field is labeled "Rate Symbol" with the help text: *"Set the unit used to display the rate of this currency. For example, if you enter Tomans and the currency rate is 50000, the rate of this currency will be displayed as 50,000 Tomans."* The placeholder is `mns_navasan()->get_currency_symbol()` (the store's base currency = Toman).
+- Lite metabox (`includes/currencies-metabox.php`): the field is labeled "نماد اختصاری (ISO)" (ISO abbreviation symbol) with examples "USD, AED, EUR".
+- In the main plugin, the currency's own identity (name/symbol) is the **post title**, not a meta key. `_mnswmc_currency_rate_symbol` is only the unit for displaying the rate.
+
+**Decision:** per the task instruction ("if the source review shows the two keys are not equivalent, do not replace them without reason and report the evidence"), **no replacement/migration was implemented**. Writing Lite's ISO symbol (`USD`) into `_mnswmc_currency_rate_symbol` would be semantically wrong (the main plugin would display the rate as "15,000 USD" instead of "15,000 Toman").
+
+**Compatibility impact:** display-only. The price-calculation contract (rate via `_mnswmc_currency_value`, currency price via `_mnswmc_regular_price`) is fully compatible. The symbol/rate-symbol difference only affects how the rate is displayed in the main plugin's admin (a Lite-created currency would show the rate without a unit, or with a default).
+
+**Optional future enhancement (not implemented, needs owner approval):** Lite could additionally write the rate unit (`تومان`) to `_mnswmc_currency_rate_symbol` so the main plugin displays the rate correctly. This is a display-only enhancement.
+
+### 14.6 Sale price metadata — NOT EQUIVALENT (no change made)
+
+**Finding (evidence-based):** the two "sale price" keys are **not equivalent**:
+
+| Plugin | Key | Concept |
+|---|---|---|
+| Main | `_mnswmc_sale_price` | The **currency-denominated** sale price (input, e.g. `8` USD) |
+| Lite | `_sale_price` (WooCommerce standard) | The **Toman-denominated** sale price (output, set directly by the admin) |
+
+**Evidence:**
+- Main plugin product metabox (`templates/metaboxes/product.php`): `_mnswmc_sale_price` is labeled "Sale Rate Price" (the sale price in the currency), parallel to `_mnswmc_regular_price` ("Rate Price"). The main plugin computes the final Toman sale price from `_mnswmc_sale_price` × rate (+ profit/rounding) and stores it in the WC standard `_sale_price`.
+- Lite has **no currency-denominated sale price field**. Lite's admin sets the WC standard `_sale_price` (Toman) directly, and Lite **preserves** `_sale_price` during recalculation (it never overwrites it).
+
+**Decision:** per the task instruction, **no change was made**. Lite intentionally does not support currency-denominated sale prices (lightweight design). Adding `_mnswmc_sale_price` would require implementing the full currency sale-price calculation logic, which is out of scope for the lightweight plugin.
+
+**Compatibility impact:**
+- A Lite-created product (has `_mnswmc_regular_price`, no `_mnswmc_sale_price`) works in the main plugin (no sale price).
+- A main-created product with a currency sale price (`_mnswmc_sale_price`) will have its Toman `_sale_price` **stale** in Lite (Lite does not recalculate the sale price when the rate changes, because it does not store the currency sale price). The regular price is still recalculated correctly.
+
+### 14.7 Guard test
+
+**Real Guard test (main plugin actually active): BLOCKED.** The main plugin cannot be activated (fatal: unauthorized ionCube encoder, §14.3). The guard's `admin_init` check runs after plugin loading, but the main plugin fatals during loading (before `admin_init`), so the real scenario cannot be executed.
+
+**Simulated Guard test (main plugin "active" via the `option_active_plugins` filter, code not loaded): EXECUTED, PASS.**
+- Baseline: `is_plugin_active(main)` = `false`, Lite active.
+- Simulated: `is_plugin_active(main)` = `true` (filter).
+- After `do_action('admin_init')`: **Lite was deactivated by the guard** (Lite active = `false`).
+- Restored: Lite re-activated (final state: Lite active, main plugin inactive).
+- **Result:** the guard's deactivation logic works — when the main plugin is active, Lite deactivates itself.
+
+**Load-prevention guard (`plugins_loaded`): verified by code review + the "load" path.** The `plugins_loaded` handler loads Lite's code only if the main plugin is inactive. The "load" path is confirmed (Lite's functions work when the main plugin is inactive). The "don't load" path is a simple `if (!is_plugin_active(...))` check (code review).
+
+**Final plugin state:** Lite **active**, main plugin **inactive** (installed but not activatable).
+
+### 14.8 Bidirectional compatibility test
+
+**Full bidirectional test (main plugin actually running): BLOCKED** (the main plugin cannot run, §14.3).
+
+**Metadata contract verification (source analysis + Lite regression): PARTIALLY VERIFIED.**
+- **Lite → Original (contract):** Lite writes the rate to `_mnswmc_currency_value` (the main plugin's standard key, confirmed in §14.4) and the currency price to `_mnswmc_regular_price` (the main plugin's key). The main plugin reads these keys (confirmed in readable source). **Contract compatible.** (Not verified by actually running the main plugin.)
+- **Original → Lite (contract):** The main plugin writes the rate to `_mnswmc_currency_value` and the currency price to `_mnswmc_regular_price`. Lite reads the rate via `ani_navasan_get_currency_rate()` (reads `_mnswmc_currency_value`) and the currency price via `_mnswmc_regular_price`. **Contract compatible.** (Not verified by actually running the main plugin.)
+- **Sale price:** not compatible (Lite has no currency sale price, §14.6).
+- **Symbol:** not compatible (different concepts, §14.5).
+
+### 14.9 Regression tests — EXECUTED, PASS
+
+Live regression on `anishop-package-test.local` (authorized test products `17613`/`17615`/`17616`/`17617`, test currencies `17654`/`17655` + temporary currencies, deleted after), via `wp eval-file`:
+
+| Check | Result |
+|---|---|
+| R1 standard rate read (`17654` → 2000) | PASS |
+| R2 legacy rate fallback (temp currency, legacy only → 3000) | PASS |
+| R3a migration copies legacy→standard (→ 4000) | PASS |
+| R3b migration keeps legacy key (4000) | PASS |
+| R3c migration does not overwrite standard (9999 kept) | PASS |
+| R4 standard key priority (both keys → 5000) | PASS |
+| R5 simple regular price (`17613` → 200000) | PASS |
+| R6 simple sale price (`17613` → 120000) | PASS |
+| R7 variation price (`17616` → 200000) | PASS |
+| R8 variable parent price (`17615` → 200000) | PASS |
+| R9a recalc simple regular (rate 2500 → 250000) | PASS |
+| R9b recalc variation regular (→ 250000) | PASS |
+| R9c recalc non-dependent unchanged (`17617` → 33600000) | PASS |
+| R9d recalc variable parent sync (`17615` → 250000) | PASS |
+| R10 sale price preserved after recalc (120000) | PASS |
+| R11a–d rounding (1234→1000, 1500→2000, 1999→2000, 2500→3000) | PASS (4) |
+| R12 frontend behavior (Store API: Toman price) | PASS |
+| R13 no currency price shown to customer (Store API: IRT/تومان) | PASS |
+
+**Total: 21 checks PASS, 0 FAIL.** (The symbol-migration checks from the task's regression list do not apply — no symbol migration was implemented, §14.5.)
+
+**Frontend verification (Store API, product `17613`):** `price=120000`, `regular_price=200000`, `sale_price=120000`, `currency_code=IRT`, `currency_symbol=تومان`. The customer sees the Toman price; the currency price (100 TST) is not shown.
+
+**Final live state (consistent):** `17654` rate `2000` (standard key); `17613` regular `200000` / sale `120000`; `17616` `200000`; `17617` `33600000`; `17615` parent `200000`.
+
+### 14.10 Raw DB metadata (recorded)
+
+**Currencies (`mnswmc` posts):**
+- `17654` (TST-REGRESSION): `_mnswmc_symbol=TST`, `_mnswmc_currency_value=2000`, `_mnswmc_rate=` (empty).
+- `17655` (TST-LEGACY): `_mnswmc_symbol=` (empty), `_mnswmc_currency_value=2000`, `_mnswmc_rate=2000` (both keys, from the Phase 1 migration).
+
+**Products:**
+- `17613` (simple, on sale): `_regular_price=200000`, `_price=120000`, `_sale_price=120000`, `_mnswmc_active=yes`, `_mnswmc_currency_id=17654`, `_mnswmc_regular_price=100`.
+- `17615` (variable parent): `_price=200000`, `_mnswmc_active=no`.
+- `17616` (variation): `_regular_price=200000`, `_price=200000`, `_mnswmc_active=yes`, `_mnswmc_currency_id=17654`, `_mnswmc_regular_price=100`.
+- `17617` (variation): `_regular_price=33600000`, `_price=33600000`, `_mnswmc_active=no`.
+
+### 14.11 Files changed in this phase
+
+**No Lite plugin source files were modified** (the symbol and sale-price keys are not equivalent, so no migration/alignment was implemented; see §14.5, §14.6).
+
+Environment changes (outside the repo):
+- ionCube Loader 15.5 installed in `/home/ramin/Local Sites/anishop-package-test/ioncube/` (site-specific).
+- The site's php.ini (`/home/ramin/.config/Local/run/vTKHuMGVX/conf/php/php.ini`) — added the ionCube `zend_extension` as the first line (backup: `php.ini.bak-task08b`).
+- Main plugin `mns-woocommerce-rate-based-products` 7.12.0 installed on the site (inactive).
+
+Documentation changes (in the repo):
+- `docs/reports/2026-11-13-task-08-metadata-compatibility.md` — this section (§14) + status line.
+- `docs/نقشه راه توسعه Ani Navasan Lite.md` — Task 08 status updated.
+- `.clinerules/memory-bank.md` — updated.
+
+### 14.12 Final result
+
+**PARTIALLY COMPLETE.**
+- **Symbol metadata:** analyzed — **not equivalent** (evidence in §14.5). No change made (per task instruction).
+- **Sale price metadata:** analyzed — **not equivalent** (evidence in §14.6). No change made (per task instruction).
+- **ionCube:** installed and verified (15.5, web + CLI).
+- **Main plugin:** installed (7.12.0) but **activation BLOCKED** (unauthorized ionCube encoder — a licensing/provenance issue, not a version incompatibility).
+- **Guard test:** simulated test PASS; real test BLOCKED.
+- **Bidirectional compatibility:** contract verified (source + regression); full test BLOCKED.
+- **Regression:** 21/21 PASS.
+
+**Blocked items (require owner action):**
+- A **legitimately licensed** copy of the main plugin (or its source) is needed to run the real bidirectional + Guard tests. The current ZIP's encrypted files were encoded with an unauthorized ionCube encoder and cannot be executed by the legitimate loader.
+- A decision on the optional symbol display-compatibility enhancement (§14.5) and the sale-price limitation (§14.6).
+
+### 14.13 Git (this phase)
+
+- **Branch:** `test/task-08-metadata-compatibility` (same branch, continued from `27b2726`).
+- **Commit:** the commit adding §14 + roadmap + memory bank updates (see `git log --oneline test/task-08-metadata-compatibility`).
+- **Push:** pushed to `origin`. **Not merged.** No tag/release created.
+- The main plugin ZIP (`docs/sources/mns-woocommerce-rate-based-products.zip`) and no secrets are committed.
