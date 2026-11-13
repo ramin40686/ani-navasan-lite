@@ -16,7 +16,7 @@ function ani_navasan_get_currency_options($for_select = false) {
     $options = [];
 
     foreach ($currencies as $currency) {
-        $rate   = get_post_meta($currency->ID, '_mnswmc_rate', true);
+        $rate   = ani_navasan_get_currency_rate($currency->ID);
         $label  = $currency->post_title;
 
         if ($for_select) {
@@ -149,8 +149,7 @@ add_action('woocommerce_admin_process_product_object', function ($product) {
             $currency_price = $product->get_meta('_mnswmc_regular_price', true);
 
             if ($currency_id && $currency_price !== '') {
-                $rate = get_post_meta(intval($currency_id), '_mnswmc_rate', true);
-                $rate = $rate === '' ? 0 : floatval($rate);
+                $rate = ani_navasan_get_currency_rate(intval($currency_id));
                 $currency_price = floatval($currency_price);
 
                 if ($rate > 0 && $currency_price > 0) {
@@ -285,8 +284,7 @@ add_action('woocommerce_save_product_variation', function ($variation_id, $i) {
             $currency_price = get_post_meta($variation_id, '_mnswmc_regular_price', true);
 
             if ($currency_id && $currency_price !== '') {
-                $rate = get_post_meta(intval($currency_id), '_mnswmc_rate', true);
-                $rate = $rate === '' ? 0 : floatval($rate);
+                $rate = ani_navasan_get_currency_rate(intval($currency_id));
                 $currency_price = floatval($currency_price);
 
                 if ($rate > 0 && $currency_price > 0) {

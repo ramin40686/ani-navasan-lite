@@ -23,14 +23,58 @@ function ani_navasan_round_to_thousand($value) {
 }
 
 /**
+ * 🟢 دریافت نرخ ارز با سازگاری قرارداد داده‌ای افزونه اصلی نوسان
+ *
+ * نرخ ارز در قرارداد داده‌ای افزونه اصلی نوسان با کلید `_mnswmc_currency_value`
+ * ذخیره می‌شود؛ این افزونه نیز از همان کلید استفاده می‌کند. برای سازگاری با داده‌های
+ * قدیمی که با کلید پیشین `_mnswmc_rate` ذخیره شده‌اند، در صورتی که کلید جدید مقدار
+ * نداشته باشد، از کلید قدیمی به‌عنوان fallback استفاده می‌شود.
+ *
+ * @param int $currency_id شناسه پست ارز (mnswmc)
+ * @return float نرخ ارز به تومان
+ */
+function ani_navasan_get_currency_rate($currency_id) {
+    $rate = get_post_meta($currency_id, '_mnswmc_currency_value', true);
+    if ($rate === '' || $rate === null) {
+        $rate = get_post_meta($currency_id, '_mnswmc_rate', true);
+    }
+    return $rate !== '' ? floatval($rate) : 0;
+}
+
+/**
+ * 🟢 مهاجرت یک‌باره کلید نرخ ارز از `_mnswmc_rate` به `_mnswmc_currency_value`
+ *
+ * این تابع هنگام فعال‌سازی افزونه اجرا می‌شود و مقادیر نرخ ارز ذخیره‌شده با کلید
+ * قدیمی `_mnswmc_rate` را به کلید استاندارد `_mnswmc_currency_value` منتقل می‌کند.
+ * انتقال فقط در صورتی انجام می‌شود که کلید جدید هنوز مقدار نداشته باشد؛ بنابراین
+ * هیچ داده‌ای از دست نمی‌رود و کلید قدیمی نیز حذف نمی‌شود (به‌عنوان fallback باقی می‌ماند).
+ */
+function ani_navasan_lite_migrate_rate_key() {
+    global $wpdb;
+
+    $currency_ids = $wpdb->get_col("SELECT ID FROM {$wpdb->posts} WHERE post_type = 'mnswmc'");
+
+    foreach ($currency_ids as $cid) {
+        $old_rate = get_post_meta($cid, '_mnswmc_rate', true);
+        $new_rate = get_post_meta($cid, '_mnswmc_currency_value', true);
+
+        if ($new_rate === '' && $old_rate !== '') {
+            update_post_meta($cid, '_mnswmc_currency_value', $old_rate);
+        }
+    }
+
+    update_option('ani_navasan_lite_migrated_rate_key', 1);
+}
+
+/**
  * 🟢 بروزرسانی قیمت تومانی محصولات برای یک ارز مشخص
  */
 add_action('ani_navasan_lite_recalc_currency', function ($currency_id, $rate = null) {
     global $wpdb;
 
-    // اگر نرخ پاس داده نشده، از متای خود ارز بخون
+    // اگر نرخ پاس داده نشده، از متای خود ارز بخون (با سازگاری قرارداد داده‌ای افزونه اصلی)
     if ($rate === null) {
-        $rate = (float) get_post_meta($currency_id, '_mnswmc_rate', true);
+        $rate = ani_navasan_get_currency_rate($currency_id);
     }
 
     // همه محصولات (ساده + وریشن) که به این ارز وابسته‌اند

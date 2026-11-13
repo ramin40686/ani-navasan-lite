@@ -10,7 +10,7 @@
  * Methodology (mirrors Task 07):
  *  - Currency create/edit steps are driven through the REAL admin save
  *    workflow: nonce + wp_insert_post()/wp_update_post() -> save_post_mnswmc
- *    -> _mnswmc_rate persistence -> ani_navasan_lite_recalc_currency.
+ *    -> _mnswmc_currency_value persistence -> ani_navasan_lite_recalc_currency.
  *  - Products are created through the WooCommerce CRUD API (stable since
  *    WC 3.0; wc_create_product() was removed in newer WC releases, so it
  *    is intentionally NOT used here).
@@ -73,7 +73,7 @@ function compat_check( $name, $pass, $detail = '' ) {
  * Populates $_POST exactly as the currency metabox form would, then calls
  * wp_insert_post() (new) or wp_update_post() (existing). That fires the
  * genuine save_post_mnswmc handler, which verifies the nonce + capability,
- * persists _mnswmc_symbol/_mnswmc_rate and fires ani_navasan_lite_recalc_currency.
+ * persists _mnswmc_symbol/_mnswmc_currency_value and fires ani_navasan_lite_recalc_currency.
  *
  * @param int    $post_id 0 to create, post ID to update.
  * @param string $symbol  ISO symbol.
@@ -153,7 +153,7 @@ wp_set_current_user( 1 );
 $recalc_log = array();
 $cur        = compat_save_currency( 0, 'TST', 1500 );
 compat_check( 'S2.1 currency_created', ! is_wp_error( $cur ) && $cur > 0, 'id=' . $cur );
-compat_check( 'S2.2 rate_meta', get_post_meta( $cur, '_mnswmc_rate', true ) == 1500.0, 'got=' . get_post_meta( $cur, '_mnswmc_rate', true ) );
+compat_check( 'S2.2 rate_meta', get_post_meta( $cur, '_mnswmc_currency_value', true ) == 1500.0, 'got=' . get_post_meta( $cur, '_mnswmc_currency_value', true ) );
 compat_check( 'S2.3 symbol_meta', get_post_meta( $cur, '_mnswmc_symbol', true ) === 'TST' );
 compat_check(
 	'S2.4 recalc_fired_once',
@@ -350,12 +350,72 @@ if ( file_exists( $debug_log ) ) {
 compat_check( 'S8.1 no_php_issues_from_plugin', empty( $issues ), implode( ' || ', array_slice( $issues, 0, 5 ) ) );
 
 // ---------------------------------------------------------------------------
+// S9 — rate key compatibility: legacy-key fallback + one-time migration
+// ---------------------------------------------------------------------------
+// S9.1 helper reads the standard key (state after S5: rate 3000)
+compat_check(
+	'S9.1 helper_reads_standard_key',
+	ani_navasan_get_currency_rate( $cur ) == 3000.0,
+	'got=' . ani_navasan_get_currency_rate( $cur )
+);
+
+// S9.2 fallback: legacy key only (pre-migration data)
+delete_post_meta( $cur, '_mnswmc_currency_value' );
+update_post_meta( $cur, '_mnswmc_rate', 1234.0 );
+compat_check(
+	'S9.2 helper_legacy_key_fallback',
+	ani_navasan_get_currency_rate( $cur ) == 1234.0,
+	'got=' . ani_navasan_get_currency_rate( $cur )
+);
+
+// S9.3 standard key takes precedence when both keys exist
+update_post_meta( $cur, '_mnswmc_currency_value', 3000.0 );
+compat_check(
+	'S9.3 helper_standard_key_precedence',
+	ani_navasan_get_currency_rate( $cur ) == 3000.0,
+	'got=' . ani_navasan_get_currency_rate( $cur )
+);
+
+// S9.4 migration copies legacy -> standard and keeps the legacy key
+// Clear the stale $_POST left by the compat_save_currency() calls above:
+// wp_insert_post() fires the real save_post_mnswmc handler, which would
+// otherwise persist the stale mnswmc_rate into the new post (in a real
+// admin request $_POST is per-request, so this cannot happen there).
+unset( $_POST['mnswmc_meta_nonce'], $_POST['mnswmc_symbol'], $_POST['mnswmc_rate'] );
+$fb = wp_insert_post(
+	array(
+		'post_title'  => 'COMPAT MIGRATE ' . wp_rand( 1000, 9999 ),
+		'post_type'   => 'mnswmc',
+		'post_status' => 'publish',
+	),
+	true
+);
+update_post_meta( $fb, '_mnswmc_rate', 777.0 );
+ani_navasan_lite_migrate_rate_key();
+compat_check(
+	'S9.4 migration_copies_legacy_to_standard',
+	get_post_meta( $fb, '_mnswmc_currency_value', true ) == 777.0
+		&& get_post_meta( $fb, '_mnswmc_rate', true ) == 777.0,
+	'std=' . get_post_meta( $fb, '_mnswmc_currency_value', true ) . ' legacy=' . get_post_meta( $fb, '_mnswmc_rate', true )
+);
+
+// S9.5 migration is idempotent and never overwrites an existing standard value
+update_post_meta( $fb, '_mnswmc_currency_value', 888.0 );
+ani_navasan_lite_migrate_rate_key();
+compat_check(
+	'S9.5 migration_no_overwrite',
+	get_post_meta( $fb, '_mnswmc_currency_value', true ) == 888.0,
+	'std=' . get_post_meta( $fb, '_mnswmc_currency_value', true )
+);
+
+// ---------------------------------------------------------------------------
 // Cleanup — remove all test data created by this run
 // ---------------------------------------------------------------------------
 wp_delete_post( $cur, true );
 wp_delete_post( $pid, true );
 wp_delete_post( $var_id, true );
 wp_delete_post( $sale->get_id(), true );
+wp_delete_post( $fb, true );
 
 // ---------------------------------------------------------------------------
 // Summary

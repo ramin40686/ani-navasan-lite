@@ -44,6 +44,12 @@ add_action('admin_init', function () {
  */
 register_activation_hook(__FILE__, function () {
     update_option('ani_navasan_lite_activated', 1);
+
+    // مهاجرت یک‌باره کلید نرخ ارز به قرارداد داده‌ای افزونه اصلی
+    require_once plugin_dir_path(__FILE__) . 'includes/functions.php';
+    if (function_exists('ani_navasan_lite_migrate_rate_key')) {
+        ani_navasan_lite_migrate_rate_key();
+    }
 });
 
 add_action('admin_notices', function () {
