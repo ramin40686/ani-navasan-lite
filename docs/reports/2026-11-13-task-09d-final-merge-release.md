@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-13
 **Branch:** `fix/task-09-preview-defaults` (documentation + release work)
-**Status:** IN PROGRESS (merge/tag/release values finalized in §10–§12 after execution)
+**Status:** COMPLETE — merged into `main`, tagged `1.1.0`, and published as GitHub Release 1.1.0.
 
 ---
 
@@ -147,20 +147,23 @@ No new functional or browser tests were executed (per task scope). Existing test
 - **Source:** `fix/task-09-preview-defaults`
 - **Destination:** `main`
 - **Method:** `git merge --no-ff` (merge commit; no squash, no rebase)
-- **Merge commit SHA:** _TO BE FILLED after merge_
+- **Merge commit SHA:** `e46ac1db9e2abf07938cb2c1fbc27fcec16b95c0`
 - **Pushed to:** `origin/main`
-- **Remote `main` HEAD verified:** _TO BE FILLED after push_
+- **Remote `main` HEAD verified:** `e46ac1db9e2abf07938cb2c1fbc27fcec16b95c0` (local `main` == `origin/main`)
+- **Conflicts:** none
+- **Commits merged:** 15 (Tasks 07, 08, 08 follow-up, 08 final, 09, 09c, 09d)
 
 ---
 
 ## 11. Tag & Release
 
 - **Tag name:** `1.1.0` (annotated)
-- **Tag target (merged `main` commit):** _TO BE FILLED after tag_
-- **Tag object SHA:** _TO BE FILLED after tag_
-- **Tag pushed to:** `origin`
-- **GitHub Release:** created for tag `1.1.0`
-- **Release URL:** _TO BE FILLED after release_
+- **Tag target (merged `main` commit):** `e46ac1db9e2abf07938cb2c1fbc27fcec16b95c0`
+- **Tag object SHA:** `a8598d08c1a77564ee73270c7434804e98b986f8`
+- **Tag pushed to:** `origin` (verified via `git ls-remote --tags origin 1.1.0`)
+- **GitHub Release:** created for tag `1.1.0` (not a draft, not a prerelease)
+- **Release URL:** https://github.com/ramin40686/ani-navasan-lite/releases/tag/1.1.0
+- **Published:** 2026-11-13T21:40:41Z (verified via `gh release view 1.1.0`)
 
 ### Release Notes (summary)
 
@@ -186,20 +189,21 @@ No new functional or browser tests were executed (per task scope). Existing test
 | Task 09c report | Corrected | ✅ |
 | Version metadata | 1.1.0 | ✅ |
 | Plugin business logic | Unchanged during Task 09d | ✅ |
-| Merge | Completed | _TO BE FILLED_ |
-| Remote main | Updated | _TO BE FILLED_ |
-| Annotated tag | 1.1.0 | _TO BE FILLED_ |
-| Tag target | Final main commit | _TO BE FILLED_ |
-| GitHub Release | Published | _TO BE FILLED_ |
-| Git working tree | Clean | _TO BE FILLED_ |
+| Merge | Completed | ✅ (merge commit `e46ac1d`) |
+| Remote main | Updated | ✅ (`origin/main` = `e46ac1d`) |
+| Annotated tag | 1.1.0 | ✅ (object `a8598d0`) |
+| Tag target | Final main commit | ✅ (`e46ac1d`) |
+| GitHub Release | Published | ✅ (verified via `gh release view`) |
+| Git working tree | Clean | ✅ |
 
 ---
 
 ## 13. Final Repository Status
 
-- **Final `main` HEAD:** _TO BE FILLED_
-- **Working tree:** _TO BE FILLED_
-- **Branches:** historical task branches preserved (not deleted).
+- **Final `main` HEAD:** `e46ac1db9e2abf07938cb2c1fbc27fcec16b95c0` (the merge commit; also the tag `1.1.0` target)
+- **Working tree:** Clean
+- **Branches:** historical task branches preserved (not deleted). `fix/task-09-preview-defaults` remains at `207d052` (its pre-merge HEAD); the merge commit `e46ac1d` is on `main`.
+- **Note on the final report commit:** this report's post-merge values (§10–§13) could only be known after the authorized merge/tag/release. To record them without performing a second (unauthorized) merge, this final documentation-only update is committed directly on `main` and pushed. No plugin code is affected.
 
 ---
 
