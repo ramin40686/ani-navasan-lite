@@ -35,7 +35,7 @@ add_action('admin_enqueue_scripts', function ($hook) {
                 'ani-navasan-lite-admin',
                 plugin_dir_url(__FILE__) . '../assets/css/admin.css',
                 array(),
-                '1.0.0'
+                '1.1.0'
             );
         }
     }

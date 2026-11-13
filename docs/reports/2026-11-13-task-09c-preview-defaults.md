@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-13
 **Branch:** `fix/task-09-preview-defaults` (from `feat/task-09-currency-sale-price`)
-**Status:** COMPLETE
+**Status:** COMPLETE — merged into `main` in Task 09d and released as **1.1.0**. Preview behavior additionally verified by the project owner in a real browser (see §8.6).
 
 ---
 
@@ -191,8 +191,19 @@ No compatibility implications. The changes are backward-compatible:
 | Test | Reason |
 |---|---|
 | Docker smoke test (`tests/compat/`) | Requires a full Docker environment (WP + WC + PHP); not available in this environment. The smoke test was last run in Task 09 (45/45 PASS) and the changes in this task are limited to default values and preview logic, which are covered by the unit tests above. |
-| Browser-based preview test | Requires a real browser to simulate input events and verify the DOM. The preview logic is verified by the unit tests (`tests/preview-logic-test.js`) which simulate the same logic. |
+| Automated browser-based preview test | No automated browser harness exists in this repository. The preview logic is verified by the unit tests (`tests/preview-logic-test.js`) which simulate the same logic. Real-browser verification was instead performed manually by the project owner (see §8.6). |
 | Live save handler test (triggering `woocommerce_save_product_variation`) | Triggering the save action directly could have side effects (recalculating prices). The save handler logic is verified by the unit tests (`tests/dependence-type-test.php`) which simulate the same logic. |
+
+### 8.6 Owner Manual Browser Verification
+
+The project owner personally tested the admin interface and the frontend in a **real browser** and explicitly confirmed that all preview fields work correctly. This is a **manual** verification performed by the project owner — it is **not** an automated test executed by Cline.
+
+- **Scope:** admin product editor (simple products + variations) and the frontend.
+- **Confirmed:** the live Toman preview fields (rate, regular price, sale price, minimum price) update independently; clearing one input clears only its corresponding preview value; the calculated Toman prices are correct on the frontend.
+- **Result:** positive — all preview fields behave as specified.
+- **Attribution:** recorded as the project owner's manual test, distinct from the automated logic tests in §8.2/§8.3.
+
+> **Note on test attribution:** The automated tests in §8.1–§8.4 are logic simulations executed by Cline (Node.js / PHP). They verify the same calculation and branching logic as the shipped code but do not drive a real DOM. The real-browser DOM behavior was verified by the project owner's manual test in §8.6. The two are complementary and are reported separately.
 
 
 ---
@@ -221,21 +232,45 @@ No compatibility implications. The changes are backward-compatible:
 
 ---
 
-## 12. Commit Hash
+## 12. Commit Hashes
 
-`7f5681f` — Task 09c: default dependence type to simple + independent preview fix
+Task 09c introduced **3 commits** on `fix/task-09-preview-defaults` (verified via `git log` / `git show --stat`):
+
+| # | Full SHA | Subject | Files changed |
+|---|---|---|---|
+| 1 | `7f5681fdfff8ced2f584d3628ca22f59d5f75185` | Task 09c: default dependence type to simple + independent preview fix | 7 (`.clinerules/memory-bank.md`, `admin/metabox.php`, `assets/js/admin.js`, `docs/reports/2026-11-13-task-09c-preview-defaults.md`, `docs/نقشه راه توسعه Ani Navasan Lite.md`, `tests/dependence-type-test.php`, `tests/preview-logic-test.js`) |
+| 2 | `1e528811aff5130d7c170d8e4fdeb83046678605` | docs(task-09c): record commit hash and push status in report | 1 (`docs/reports/2026-11-13-task-09c-preview-defaults.md`) |
+| 3 | `eca7abc72593a78ad0d421dac0ff051d9cb1f4ff` | docs(memory-bank): record Task 09c completion | 1 (`.clinerules/memory-bank.md`) |
+
+Short hashes: `7f5681f`, `1e52881`, `eca7abc`.
+
+### 12.1 Business-Logic Confirmation
+
+Task 09c did **not** modify plugin business logic. The price-calculation, rounding, recalculation, and price-persistence logic are unchanged. The only behavioral changes are:
+- The **default** value of `_mnswmc_dependence_type` (now `simple` for both product types) plus a fallback that preserves a previously saved valid value.
+- The **display** behavior of the live Toman preview (each preview value updates independently of the others).
+
+No calculation formula, rounding rule, metadata key, or save-time price write was altered.
 
 ---
 
 ## 13. Push Status
 
-**Pushed** to `origin/fix/task-09-preview-defaults` (new branch, tracking set).
+**Pushed** to `origin/fix/task-09-preview-defaults` (new branch, tracking set). All 3 commits are present on the remote.
 
 ---
 
 ## 14. Working Tree Status
 
 Clean (all changes committed and pushed).
+
+---
+
+## 14a. Final Status (updated in Task 09d)
+
+- **Merged:** `fix/task-09-preview-defaults` was merged into `main` in Task 09d (merge commit recorded in `docs/reports/2026-11-13-task-09d-final-merge-release.md`).
+- **Released:** shipped as part of **1.1.0** (tag `1.1.0`).
+- **Browser verification:** the project owner manually verified the preview behavior in a real browser (see §8.6). No further browser verification is required.
 
 ---
 
