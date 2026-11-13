@@ -409,6 +409,104 @@ compat_check(
 );
 
 // ---------------------------------------------------------------------------
+// S10 — Task 09: dependence type normalization + currency sale price
+// ---------------------------------------------------------------------------
+
+// S10.1 dependence type migration normalizes legacy 'variable' -> 'advanced'
+$dep_prod = new WC_Product_Simple();
+$dep_prod->set_name( 'COMPAT DepType' );
+$dep_prod->set_regular_price( '100000' );
+$dep_prod->set_status( 'publish' );
+$dep_prod->save();
+$dep_id = $dep_prod->get_id();
+update_post_meta( $dep_id, '_mnswmc_dependence_type', 'variable' );
+ani_navasan_lite_migrate_dependence_type();
+compat_check(
+	'S10.1 dep_type_variable_to_advanced',
+	get_post_meta( $dep_id, '_mnswmc_dependence_type', true ) === 'advanced',
+	'got=' . get_post_meta( $dep_id, '_mnswmc_dependence_type', true )
+);
+
+// S10.2 migration is idempotent and does not alter simple/advanced values
+update_post_meta( $dep_id, '_mnswmc_dependence_type', 'simple' );
+$dep_prod2 = new WC_Product_Simple();
+$dep_prod2->set_name( 'COMPAT DepType2' );
+$dep_prod2->set_regular_price( '100000' );
+$dep_prod2->set_status( 'publish' );
+$dep_prod2->save();
+$dep_id2 = $dep_prod2->get_id();
+update_post_meta( $dep_id2, '_mnswmc_dependence_type', 'advanced' );
+ani_navasan_lite_migrate_dependence_type();
+compat_check(
+	'S10.2 dep_type_simple_advanced_unchanged',
+	get_post_meta( $dep_id, '_mnswmc_dependence_type', true ) === 'simple'
+		&& get_post_meta( $dep_id2, '_mnswmc_dependence_type', true ) === 'advanced',
+	'simple=' . get_post_meta( $dep_id, '_mnswmc_dependence_type', true )
+		. ' advanced=' . get_post_meta( $dep_id2, '_mnswmc_dependence_type', true )
+);
+
+// S10.3 currency sale price -> Toman sale price (simple product, rate 3000)
+$sale2 = new WC_Product_Simple();
+$sale2->set_name( 'COMPAT Sale2' );
+$sale2->set_regular_price( '100000' );
+$sale2->set_status( 'publish' );
+$sale2->save();
+update_post_meta( $sale2->get_id(), '_mnswmc_active', 'yes' );
+update_post_meta( $sale2->get_id(), '_mnswmc_currency_id', $cur );
+update_post_meta( $sale2->get_id(), '_mnswmc_regular_price', 100.0 ); // 100 TST
+update_post_meta( $sale2->get_id(), '_mnswmc_sale_price', 80.0 );    // 80 TST
+compat_save_currency( $cur, 'TST', 3000 );
+$s2 = wc_get_product( $sale2->get_id() );
+compat_check(
+	'S10.3 sale_regular_300000',
+	$s2->get_regular_price() === '300000',
+	'got=' . $s2->get_regular_price()
+);
+compat_check(
+	'S10.4 sale_price_240000',
+	$s2->get_sale_price() === '240000',
+	'got=' . $s2->get_sale_price()
+);
+
+// S10.5 empty currency sale price -> no WC sale price is created
+$nosale = new WC_Product_Simple();
+$nosale->set_name( 'COMPAT NoSale' );
+$nosale->set_regular_price( '100000' );
+$nosale->set_status( 'publish' );
+$nosale->save();
+update_post_meta( $nosale->get_id(), '_mnswmc_active', 'yes' );
+update_post_meta( $nosale->get_id(), '_mnswmc_currency_id', $cur );
+update_post_meta( $nosale->get_id(), '_mnswmc_regular_price', 100.0 ); // 100 TST
+// no _mnswmc_sale_price set
+compat_save_currency( $cur, 'TST', 3000 );
+$ns = wc_get_product( $nosale->get_id() );
+compat_check(
+	'S10.5 empty_sale_no_wc_sale_price',
+	$ns->get_sale_price() === '',
+	'got=' . var_export( $ns->get_sale_price(), true )
+);
+compat_check(
+	'S10.6 empty_sale_regular_300000',
+	$ns->get_regular_price() === '300000',
+	'got=' . $ns->get_regular_price()
+);
+
+// S10.7 variation currency sale price -> Toman sale price (rate 3000)
+update_post_meta( $v1->get_id(), '_mnswmc_sale_price', 40.0 ); // 40 TST
+compat_save_currency( $cur, 'TST', 3000 );
+$v1_sale = wc_get_product( $v1->get_id() );
+compat_check(
+	'S10.7 variation_sale_regular_150000',
+	$v1_sale->get_regular_price() === '150000',
+	'got=' . $v1_sale->get_regular_price()
+);
+compat_check(
+	'S10.8 variation_sale_price_120000',
+	$v1_sale->get_sale_price() === '120000',
+	'got=' . $v1_sale->get_sale_price()
+);
+
+// ---------------------------------------------------------------------------
 // Cleanup — remove all test data created by this run
 // ---------------------------------------------------------------------------
 wp_delete_post( $cur, true );
@@ -416,6 +514,10 @@ wp_delete_post( $pid, true );
 wp_delete_post( $var_id, true );
 wp_delete_post( $sale->get_id(), true );
 wp_delete_post( $fb, true );
+wp_delete_post( $dep_id, true );
+wp_delete_post( $dep_id2, true );
+wp_delete_post( $sale2->get_id(), true );
+wp_delete_post( $nosale->get_id(), true );
 
 // ---------------------------------------------------------------------------
 // Summary

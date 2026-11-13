@@ -67,6 +67,32 @@ function ani_navasan_lite_migrate_rate_key() {
 }
 
 /**
+ * 🟢 مهاجرت یک‌باره نوع وابستگی ارزی از `variable` به `advanced`
+ *
+ * این تابع هنگام فعال‌سازی افزونه اجرا می‌شود و مقادیر قدیمی `variable` در متادیتای
+ * `_mnswmc_dependence_type` را به مقدار استاندارد `advanced` (قرارداد داده‌ای افزونه
+ * اصلی نوسان) تغییر می‌دهد. این مهاجرت فقط بر روی رکوردهای دارای مقدار `variable`
+ * اثر می‌گذارد و مقادیر `simple`/`advanced` را دست‌نخورده باقی می‌گذارد؛ بنابراین
+ * ایمن و تکرارپذیر (idempotent) است.
+ */
+function ani_navasan_lite_migrate_dependence_type() {
+    global $wpdb;
+
+    $post_ids = $wpdb->get_col("
+        SELECT post_id
+        FROM {$wpdb->postmeta}
+        WHERE meta_key = '_mnswmc_dependence_type'
+          AND meta_value = 'variable'
+    ");
+
+    foreach ($post_ids as $pid) {
+        update_post_meta($pid, '_mnswmc_dependence_type', 'advanced');
+    }
+
+    update_option('ani_navasan_lite_migrated_dependence_type', 1);
+}
+
+/**
  * 🟢 بروزرسانی قیمت تومانی محصولات برای یک ارز مشخص
  */
 add_action('ani_navasan_lite_recalc_currency', function ($currency_id, $rate = null) {
@@ -98,6 +124,7 @@ add_action('ani_navasan_lite_recalc_currency', function ($currency_id, $rate = n
         if (!$product) continue;
 
         $price_currency = (float) get_post_meta($pid, '_mnswmc_regular_price', true);
+        $sale_currency = (float) get_post_meta($pid, '_mnswmc_sale_price', true);
         $floor_currency = (float) get_post_meta($pid, '_torob_scraper_min_price_currency', true);
 
         $needs_save = false;
@@ -108,6 +135,15 @@ add_action('ani_navasan_lite_recalc_currency', function ($currency_id, $rate = n
             // بر اساس وضعیت واقعی تخفیف (is_on_sale) و حفظ قیمت تخفیف (_sale_price).
             // این کار کاش‌ها و جداول lookup ووکامرس را نیز به‌روزرسانی می‌کند.
             $product->set_regular_price($price_tmn);
+            $needs_save = true;
+        }
+
+        // قیمت ویژه تومانی: فقط در صورتی که قیمت ویژه ارزی تعریف شده باشد بازمحاسبه می‌شود.
+        // اگر قیمت ویژه ارزی خالی باشد، قیمت تخفیفی موجود (WC) دست‌نخورده باقی می‌ماند
+        // تا رفتار زمان‌بندی تخفیف ووکامرس حفظ شود.
+        if ($sale_currency > 0) {
+            $sale_tmn = ani_navasan_round_to_thousand($sale_currency * $rate);
+            $product->set_sale_price($sale_tmn);
             $needs_save = true;
         }
 

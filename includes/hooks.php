@@ -18,11 +18,14 @@ add_action('save_post_product', function ($post_id) {
 
     $currency_fields = [
         '_mnswmc_regular_price',
+        '_mnswmc_sale_price',
         '_torob_scraper_min_price_currency'
     ];
 
     foreach ($currency_fields as $field) {
-        if (isset($_POST[$field])) {
+        // فقط مقادیر اسکالر (محصول ساده)؛ مقادیر آرایه‌ای (وریشن‌های محصول متغیر)
+        // در هوک ذخیره وریشن پردازش می‌شوند.
+        if (isset($_POST[$field]) && !is_array($_POST[$field])) {
             $value = floatval($_POST[$field]);
             $value = round($value, 2);
             update_post_meta($post_id, $field, $value);

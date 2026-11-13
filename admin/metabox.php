@@ -57,6 +57,31 @@ add_action('woocommerce_product_options_pricing', function () {
         'description' => 'اگر تیک بزنید، این محصول بر اساس نرخ ارز محاسبه خواهد شد.',
     ));
 
+    // 🟢 نوع وابستگی ارزی (simple / advanced) — قرارداد داده‌ای افزونه اصلی
+    $current_type = get_post_meta($post->ID, '_mnswmc_dependence_type', true);
+    if ($current_type === 'variable') {
+        $current_type = 'advanced'; // مقدار قدیمی (legacy)
+    }
+    if (!in_array($current_type, array('simple', 'advanced'), true)) {
+        $current_type = 'simple'; // پیش‌فرض محصول ساده
+    }
+
+    woocommerce_wp_select(array(
+        'id'          => '_mnswmc_dependence_type',
+        'label'       => 'نوع وابستگی ارزی',
+        'options'     => array(
+            'simple'   => 'ساده (Simple)',
+            'advanced' => 'پیشرفته (Advanced)',
+        ),
+        'value'       => $current_type,
+        'desc_tip'    => true,
+    ));
+
+    // 🟢 پیام اطلاع‌رسانی حالت پیشرفته (پیش‌فرض مخفی؛ با JS نمایش داده می‌شود)
+    echo '<div class="ani_navasan_advanced_notice" style="display:none; margin:0 0 10px; padding:8px 10px; border:1px solid #ffb900; background:#fcf9e8; color:#767676; border-radius:4px; font-size:12px; line-height:1.7;">';
+    echo '⚠️ در نسخه Lite امکان تعریف و استفاده از فرمول‌های محاسباتی پیشرفته وجود ندارد. در حال حاضر، محاسبه قیمت در هر دو نوع وابستگی ساده و پیشرفته با ضرب قیمت ارزی در نرخ ارز انتخاب‌شده انجام می‌شود.';
+    echo '</div>';
+
     // 🟢 انتخاب ارز با نرخ
     $currencies    = ani_navasan_get_currency_options();
     $current_value = get_post_meta($post->ID, '_mnswmc_currency_id', true);
@@ -90,6 +115,19 @@ add_action('woocommerce_product_options_pricing', function () {
         ),
     ));
 
+    // 🟢 قیمت ویژه ارزی
+    woocommerce_wp_text_input(array(
+        'id'                => '_mnswmc_sale_price',
+        'label'             => 'قیمت ویژه ارزی',
+        'type'              => 'number',
+        'desc_tip'          => true,
+        'description'       => 'قیمت ویژه این محصول به واحد ارزی انتخاب‌شده. اگر خالی باشد، قیمت تخفیفی تومانی ساخته نمی‌شود.',
+        'custom_attributes' => array(
+            'step' => '0.01',
+            'min'  => '0'
+        ),
+    ));
+
     // 🟢 کف قیمت ارزی
     woocommerce_wp_text_input(array(
         'id'                => '_torob_scraper_min_price_currency',
@@ -108,6 +146,7 @@ add_action('woocommerce_product_options_pricing', function () {
     echo '<strong>پیش‌نمایش محاسبات:</strong><br>';
     echo '🔹 نرخ ارز: <span class="ani_rate">—</span><br>';
     echo '🔹 قیمت فروش نهایی (تومان): <span class="ani_final_price">—</span><br>';
+    echo '🔹 قیمت ویژه نهایی (تومان): <span class="ani_final_sale_price">—</span><br>';
     echo '🔹 کف قیمت فروش نهایی (تومان): <span class="ani_final_min_price">—</span>';
     echo '</div>';
 
@@ -123,6 +162,7 @@ add_action('woocommerce_admin_process_product_object', function ($product) {
         '_mnswmc_active',
         '_mnswmc_currency_id',
         '_mnswmc_regular_price',
+        '_mnswmc_sale_price',
         '_torob_scraper_min_price',
         '_torob_scraper_min_price_currency',
     );
@@ -138,25 +178,37 @@ add_action('woocommerce_admin_process_product_object', function ($product) {
         }
     }
 
-    // همیشه نوع وابستگی = simple
-    $product->update_meta_data('_mnswmc_dependence_type', 'simple');
+    // نوع وابستگی ارزی (simple / advanced) — پیش‌فرض: simple
+    $dependence_type = isset($_POST['_mnswmc_dependence_type']) ? wc_clean($_POST['_mnswmc_dependence_type']) : 'simple';
+    if (!in_array($dependence_type, array('simple', 'advanced'), true)) {
+        $dependence_type = 'simple';
+    }
+    $product->update_meta_data('_mnswmc_dependence_type', $dependence_type);
 
     // ---------- محاسبه سروری (fallback) ----------
     try {
         $active = $product->get_meta('_mnswmc_active', true);
         if ($active === 'yes') {
             $currency_id = $product->get_meta('_mnswmc_currency_id', true);
-            $currency_price = $product->get_meta('_mnswmc_regular_price', true);
 
-            if ($currency_id && $currency_price !== '') {
+            if ($currency_id) {
                 $rate = ani_navasan_get_currency_rate(intval($currency_id));
-                $currency_price = floatval($currency_price);
 
-                if ($rate > 0 && $currency_price > 0) {
-                    $toman = ani_navasan_round_to_thousand($rate * $currency_price);
+                if ($rate > 0) {
+                    $currency_price      = floatval($product->get_meta('_mnswmc_regular_price', true));
+                    $currency_sale_price = floatval($product->get_meta('_mnswmc_sale_price', true));
 
-                    $product->set_regular_price($toman);
-                    $product->set_price($toman);
+                    if ($currency_price > 0) {
+                        $toman = ani_navasan_round_to_thousand($rate * $currency_price);
+                        $product->set_regular_price($toman);
+                    }
+
+                    if ($currency_sale_price > 0) {
+                        $sale_toman = ani_navasan_round_to_thousand($rate * $currency_sale_price);
+                        $product->set_sale_price($sale_toman);
+                    } else {
+                        $product->set_sale_price('');
+                    }
 
                     $min_price_currency = $product->get_meta('_torob_scraper_min_price_currency', true);
                     if ($min_price_currency !== '') {
@@ -190,6 +242,31 @@ add_action('woocommerce_product_after_variable_attributes', function ($loop, $va
         'value' => get_post_meta($variation->ID, '_mnswmc_active', true),
     ));
 
+    // 🟢 نوع وابستگی ارزی (simple / advanced) — قرارداد داده‌ای افزونه اصلی
+    $current_type = get_post_meta($variation->ID, '_mnswmc_dependence_type', true);
+    if ($current_type === 'variable') {
+        $current_type = 'advanced'; // مقدار قدیمی (legacy)
+    }
+    if (!in_array($current_type, array('simple', 'advanced'), true)) {
+        $current_type = 'advanced'; // پیش‌فرض Variation
+    }
+
+    woocommerce_wp_select(array(
+        'id'      => "_mnswmc_dependence_type_{$loop}",
+        'name'    => "_mnswmc_dependence_type[{$loop}]",
+        'label'   => 'نوع وابستگی ارزی',
+        'options' => array(
+            'simple'   => 'ساده (Simple)',
+            'advanced' => 'پیشرفته (Advanced)',
+        ),
+        'value'   => $current_type,
+    ));
+
+    // 🟢 پیام اطلاع‌رسانی حالت پیشرفته (پیش‌فرض مخفی؛ با JS نمایش داده می‌شود)
+    echo '<div class="ani_navasan_advanced_notice" style="display:none; margin:0 0 10px; padding:8px 10px; border:1px solid #ffb900; background:#fcf9e8; color:#767676; border-radius:4px; font-size:12px; line-height:1.7;">';
+    echo '⚠️ در نسخه Lite امکان تعریف و استفاده از فرمول‌های محاسباتی پیشرفته وجود ندارد. در حال حاضر، محاسبه قیمت در هر دو نوع وابستگی ساده و پیشرفته با ضرب قیمت ارزی در نرخ ارز انتخاب‌شده انجام می‌شود.';
+    echo '</div>';
+
     // 🟢 انتخاب ارز
     $currencies = ani_navasan_get_currency_options();
     $current_value = get_post_meta($variation->ID, '_mnswmc_currency_id', true);
@@ -222,6 +299,19 @@ add_action('woocommerce_product_after_variable_attributes', function ($loop, $va
         ),
     ));
 
+    // 🟢 قیمت ویژه ارزی
+    woocommerce_wp_text_input(array(
+        'id'                => "_mnswmc_sale_price_{$loop}",
+        'name'              => "_mnswmc_sale_price[{$loop}]",
+        'label'             => 'قیمت ویژه ارزی',
+        'value'             => get_post_meta($variation->ID, '_mnswmc_sale_price', true),
+        'type'              => 'number',
+        'custom_attributes' => array(
+            'step' => '0.01',
+            'min'  => '0'
+        ),
+    ));
+
     // 🟢 کف قیمت ارزی
     woocommerce_wp_text_input(array(
         'id'                => "_torob_scraper_min_price_currency_{$loop}",
@@ -241,6 +331,7 @@ add_action('woocommerce_product_after_variable_attributes', function ($loop, $va
     echo '<strong>پیش‌نمایش محاسبات:</strong><br>';
     echo 'نرخ ارز: <span class="rate">-</span><br>';
     echo 'قیمت نهایی (تومانی): <span class="final">-</span><br>';
+    echo 'قیمت ویژه نهایی (تومانی): <span class="sale-final">-</span><br>';
     echo 'کف قیمت نهایی (تومانی): <span class="min-final">-</span>';
     echo '</div>';
 
@@ -257,6 +348,7 @@ add_action('woocommerce_save_product_variation', function ($variation_id, $i) {
         '_mnswmc_active',
         '_mnswmc_currency_id',
         '_mnswmc_regular_price',
+        '_mnswmc_sale_price',
         '_torob_scraper_min_price',
         '_torob_scraper_min_price_currency',
     );
@@ -273,30 +365,47 @@ add_action('woocommerce_save_product_variation', function ($variation_id, $i) {
         }
     }
 
-    // همیشه نوع وابستگی = variable
-    update_post_meta($variation_id, '_mnswmc_dependence_type', 'variable');
+    // نوع وابستگی ارزی (simple / advanced) — پیش‌فرض: advanced
+    $dependence_type = isset($_POST['_mnswmc_dependence_type'][$i]) ? wc_clean($_POST['_mnswmc_dependence_type'][$i]) : 'advanced';
+    if (!in_array($dependence_type, array('simple', 'advanced'), true)) {
+        $dependence_type = 'advanced';
+    }
+    update_post_meta($variation_id, '_mnswmc_dependence_type', $dependence_type);
 
     // ---------- محاسبه سروری (fallback) ----------
     try {
         $active = get_post_meta($variation_id, '_mnswmc_active', true);
         if ($active === 'yes') {
             $currency_id = get_post_meta($variation_id, '_mnswmc_currency_id', true);
-            $currency_price = get_post_meta($variation_id, '_mnswmc_regular_price', true);
 
-            if ($currency_id && $currency_price !== '') {
+            if ($currency_id) {
                 $rate = ani_navasan_get_currency_rate(intval($currency_id));
-                $currency_price = floatval($currency_price);
 
-                if ($rate > 0 && $currency_price > 0) {
-                    $toman = ani_navasan_round_to_thousand($rate * $currency_price);
+                if ($rate > 0) {
+                    $currency_price      = floatval(get_post_meta($variation_id, '_mnswmc_regular_price', true));
+                    $currency_sale_price = floatval(get_post_meta($variation_id, '_mnswmc_sale_price', true));
 
-                    update_post_meta($variation_id, '_regular_price', $toman);
-                    update_post_meta($variation_id, '_price', $toman);
+                    $product = wc_get_product($variation_id);
+                    if ($product) {
+                        if ($currency_price > 0) {
+                            $toman = ani_navasan_round_to_thousand($rate * $currency_price);
+                            $product->set_regular_price($toman);
+                        }
 
-                    $min_price_currency = get_post_meta($variation_id, '_torob_scraper_min_price_currency', true);
-                    if ($min_price_currency !== '') {
-                        $min_toman = ani_navasan_round_to_thousand(floatval($min_price_currency) * $rate);
-                        update_post_meta($variation_id, '_torob_scraper_min_price', $min_toman);
+                        if ($currency_sale_price > 0) {
+                            $sale_toman = ani_navasan_round_to_thousand($rate * $currency_sale_price);
+                            $product->set_sale_price($sale_toman);
+                        } else {
+                            $product->set_sale_price('');
+                        }
+
+                        $min_price_currency = get_post_meta($variation_id, '_torob_scraper_min_price_currency', true);
+                        if ($min_price_currency !== '') {
+                            $min_toman = ani_navasan_round_to_thousand(floatval($min_price_currency) * $rate);
+                            $product->update_meta_data('_torob_scraper_min_price', $min_toman);
+                        }
+
+                        $product->save();
                     }
                 }
             }

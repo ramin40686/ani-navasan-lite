@@ -21,9 +21,22 @@
 }
 
 .ani_navasan_preview .ani_final_price,
+.ani_navasan_preview .ani_final_sale_price,
 .ani_navasan_preview .ani_final_min_price {
     color: #21759b;
     font-weight: bold;
+}
+
+/* استایل پیام اطلاع‌رسانی حالت پیشرفته (advanced) */
+.ani_navasan_advanced_notice {
+    background: #fcf9e8;
+    border: 1px solid #ffb900;
+    color: #767676;
+    border-radius: 4px;
+    font-size: 12px;
+    line-height: 1.7;
+    padding: 8px 10px;
+    margin: 0 0 10px;
 }
 
 
@@ -48,6 +61,7 @@
 }
 
 .mnswmc-preview .final,
+.mnswmc-preview .sale-final,
 .mnswmc-preview .min-final {
     color: #21759b;
     font-weight: bold;
