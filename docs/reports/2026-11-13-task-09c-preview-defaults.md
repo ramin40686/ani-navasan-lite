@@ -223,19 +223,19 @@ No compatibility implications. The changes are backward-compatible:
 
 ## 12. Commit Hash
 
-(To be filled after commit)
+`7f5681f` — Task 09c: default dependence type to simple + independent preview fix
 
 ---
 
 ## 13. Push Status
 
-(To be filled after push)
+**Pushed** to `origin/fix/task-09-preview-defaults` (new branch, tracking set).
 
 ---
 
 ## 14. Working Tree Status
 
-(To be filled after commit)
+Clean (all changes committed and pushed).
 
 ---
 
