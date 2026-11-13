@@ -26,6 +26,21 @@ jQuery(document).ready(function ($) {
     }
 
     // ============================
+    // helper: پیدا کردن sale price ساده
+    // ============================
+    function findSimpleSalePrice() {
+        let $s = $('input#_sale_price');
+        if ($s.length) return $s;
+        $s = $('input#sale_price');
+        if ($s.length) return $s;
+        $s = $('input[name="_sale_price"]');
+        if ($s.length) return $s;
+        $s = $('input[name="sale_price"]');
+        if ($s.length) return $s;
+        return $();
+    }
+
+    // ============================
     // محصول ساده
     // ============================
     function setupSimpleProductBehavior() {
@@ -38,9 +53,10 @@ jQuery(document).ready(function ($) {
         const $minPriceToman = $('#_torob_scraper_min_price'); // همیشه نمایش داده میشه
         const $currencySelectP = $('#_mnswmc_currency_id').closest('p.form-field');
         const $currencyPriceP  = $('#_mnswmc_regular_price').closest('p.form-field');
+        const $currencySalePriceP = $('#_mnswmc_sale_price').closest('p.form-field');
         const $minPriceCurrencyP = $('#_torob_scraper_min_price_currency').closest('p.form-field');
 
-        const $currencyFieldsGroup = $currencySelectP.add($currencyPriceP).add($minPriceCurrencyP);
+        const $currencyFieldsGroup = $currencySelectP.add($currencyPriceP).add($currencySalePriceP).add($minPriceCurrencyP);
 
         // ---- محاسبه و آپدیت قیمت‌های تومان + نمایش لحظه‌ای
         function calculateAndApplySimple() {
@@ -48,6 +64,7 @@ jQuery(document).ready(function ($) {
 
             const currencyId       = $('#_mnswmc_currency_id').val();
             const basePrice        = parseFloat($('#_mnswmc_regular_price').val()) || 0;
+            const salePrice        = parseFloat($('#_mnswmc_sale_price').val()) || 0;
             const minPriceCurrency = parseFloat($('#_torob_scraper_min_price_currency').val()) || 0;
 
             if (! currencyId) {
@@ -63,22 +80,23 @@ jQuery(document).ready(function ($) {
             }, function (response) {
                 if (response && response.success) {
                     const rate = parseFloat(response.data.rate) || 0;
-                    applySimpleRate(rate, basePrice, minPriceCurrency);
+                    applySimpleRate(rate, basePrice, salePrice, minPriceCurrency);
                 } else {
                     console.warn('mnswmc: failed to get rate via ajax, trying data-rate fallback', response);
                     const rateFallback = parseFloat($('#_mnswmc_currency_id').find(':selected').data('rate')) || 0;
-                    applySimpleRate(rateFallback, basePrice, minPriceCurrency);
+                    applySimpleRate(rateFallback, basePrice, salePrice, minPriceCurrency);
                 }
             }).fail(function () {
                 // در صورت خطای شبکه یا عدم پاسخ، fallback
                 const rateFallback = parseFloat($('#_mnswmc_currency_id').find(':selected').data('rate')) || 0;
-                applySimpleRate(rateFallback, basePrice, minPriceCurrency);
+                applySimpleRate(rateFallback, basePrice, salePrice, minPriceCurrency);
             });
         }
 
-        function applySimpleRate(rate, basePrice, minPriceCurrency) {
+        function applySimpleRate(rate, basePrice, salePrice, minPriceCurrency) {
             rate = parseFloat(rate) || 0;
             const regularToman  = mnswmcRoundToThousand(basePrice * rate);
+            const saleToman     = (salePrice > 0) ? mnswmcRoundToThousand(salePrice * rate) : '';
             const minPriceToman = mnswmcRoundToThousand(minPriceCurrency * rate);
 
             // مقداردهی به فیلد قیمت اصلی تومانی (با یافتن مقاوم)
@@ -91,10 +109,13 @@ jQuery(document).ready(function ($) {
                 if ($r2.length) $r2.val(regularToman).trigger('change');
             }
 
-            // مقداردهی به فیلد کف قیمت تومانی
-            if ($minPriceToman && $minPriceToman.length !== undefined) {
-                // nothing - using variable name collision guard below
+            // مقداردهی به فیلد قیمت ویژه تومانی (فقط در صورتی که قیمت ویژه ارزی داشته باشیم)
+            const $saleInput = findSimpleSalePrice();
+            if ($saleInput.length) {
+                $saleInput.val(saleToman).trigger('change');
             }
+
+            // مقداردهی به فیلد کف قیمت تومانی
             if ($('#_torob_scraper_min_price').length) {
                 $('#_torob_scraper_min_price').val(minPriceToman).trigger('change');
             }
@@ -106,22 +127,25 @@ jQuery(document).ready(function ($) {
 
             $('.ani_navasan_preview .ani_rate').text(rate ? rate.toLocaleString() : '—');
             $('.ani_navasan_preview .ani_final_price').text(regularToman ? regularToman.toLocaleString() : '—');
+            $('.ani_navasan_preview .ani_final_sale_price').text(saleToman ? saleToman.toLocaleString() : '—');
             $('.ani_navasan_preview .ani_final_min_price').text(minPriceToman ? minPriceToman.toLocaleString() : '—');
 
-            console.log('mnswmc: calculated simple', { rate, regularToman, minPriceToman });
+            console.log('mnswmc: calculated simple', { rate, regularToman, saleToman, minPriceToman });
         }
 
         function applySimple() {
             const checked = $checkbox.is(':checked');
             const $regular = findSimpleRegularPrice();
+            const $sale = findSimpleSalePrice();
 
-            console.log('mnswmc:simple -> applySimple, checked=', checked, 'regularFound=', !!$regular.length);
+            console.log('mnswmc:simple -> applySimple, checked=', checked, 'regularFound=', !!$regular.length, 'saleFound=', !!$sale.length);
 
             if (checked) {
                 $currencyFieldsGroup.show();
                 $('.ani_navasan_preview').show();
                 if ($minPriceToman.length) $minPriceToman.prop('readonly', true).css('background', '#f5f5f5');
                 if ($regular.length) $regular.prop('readonly', true).css('background', '#f5f5f5');
+                if ($sale.length) $sale.prop('readonly', true).css('background', '#f5f5f5');
 
                 // محاسبه آنی
                 calculateAndApplySimple();
@@ -130,6 +154,7 @@ jQuery(document).ready(function ($) {
                 $('.ani_navasan_preview').hide();
                 if ($minPriceToman.length) $minPriceToman.prop('readonly', false).css('background', '');
                 if ($regular.length) $regular.prop('readonly', false).css('background', '');
+                if ($sale.length) $sale.prop('readonly', false).css('background', '');
             }
         }
 
@@ -138,7 +163,7 @@ jQuery(document).ready(function ($) {
             applySimple();
         });
 
-        $('#_mnswmc_currency_id, #_mnswmc_regular_price, #_torob_scraper_min_price_currency').off('input.mnswmc change.mnswmc').on('input.mnswmc change.mnswmc', function () {
+        $('#_mnswmc_currency_id, #_mnswmc_regular_price, #_mnswmc_sale_price, #_torob_scraper_min_price_currency').off('input.mnswmc change.mnswmc').on('input.mnswmc change.mnswmc', function () {
             if ($checkbox.is(':checked')) {
                 if (window.mnswmc_calc_timeout) clearTimeout(window.mnswmc_calc_timeout);
                 window.mnswmc_calc_timeout = setTimeout(function () {
@@ -146,6 +171,14 @@ jQuery(document).ready(function ($) {
                 }, 120);
             }
         });
+
+        // نمایش/مخفی کردن پیام اطلاع‌رسانی حالت پیشرفته
+        function updateAdvancedNotice() {
+            const isAdvanced = $('#_mnswmc_dependence_type').val() === 'advanced';
+            $('.ani_navasan_advanced_notice').toggle(isAdvanced);
+        }
+        $('#_mnswmc_dependence_type').off('change.mnswmc_dep').on('change.mnswmc_dep', updateAdvancedNotice);
+        updateAdvancedNotice();
 
         // اجرای اولیه با تاخیر مختصر (تا DOM کامل آماده شود)
         setTimeout(applySimple, 60);
@@ -174,8 +207,10 @@ jQuery(document).ready(function ($) {
         const $checkbox = $root.find('#_mnswmc_active_' + index);
         const $currency = $root.find('#_mnswmc_currency_id_' + index);
         const $price = $root.find('#_mnswmc_regular_price_' + index);
+        const $salePrice = $root.find('#_mnswmc_sale_price_' + index);
         const $minPriceCurrency = $root.find('#_torob_scraper_min_price_currency_' + index);
         const $regularTomanInput = $root.find('#variable_regular_price_' + index).first();
+        const $saleTomanInput = $root.find('#variable_sale_price_' + index).first();
         const $minTomanInput = $root.find('#_torob_scraper_min_price_' + index);
 
         if (!$preview.length) return;
@@ -184,27 +219,41 @@ jQuery(document).ready(function ($) {
         function applyRateForVariation(rate) {
             rate = parseFloat(rate) || 0;
             const priceVal = parseFloat($price.val()) || 0;
+            const saleVal = parseFloat($salePrice.val()) || 0;
             const minVal = parseFloat($minPriceCurrency.val()) || 0;
 
-            if (rate > 0 && priceVal > 0) {
-                const final = mnswmcRoundToThousand(rate * priceVal);
+            // آپدیت preview (هر بخش مستقل از ورودی خودش به‌روزرسانی می‌شود)
+            if (rate > 0) {
+                const final = (priceVal > 0) ? mnswmcRoundToThousand(rate * priceVal) : '';
+                const saleFinal = (saleVal > 0) ? mnswmcRoundToThousand(rate * saleVal) : '';
                 const minFinal = (minVal > 0) ? mnswmcRoundToThousand(rate * minVal) : '';
 
                 $preview.find('.rate').text(rate ? rate.toLocaleString() : '-');
                 $preview.find('.final').text(final ? final.toLocaleString() : '-');
+                $preview.find('.sale-final').text(saleFinal ? saleFinal.toLocaleString() : '-');
                 $preview.find('.min-final').text(minFinal ? minFinal.toLocaleString() : '-');
+            } else {
+                $preview.find('.rate').text('-');
+                $preview.find('.final').text('-');
+                $preview.find('.sale-final').text('-');
+                $preview.find('.min-final').text('-');
+            }
 
-                // مقداردهی به فیلدهای تومان مربوط به ورییشن (اگر وجود دارند)
+            // مقداردهی به فیلدهای تومان مربوط به ورییشن (فقط وقتی نرخ و قیمت عادی معتبر باشند)
+            if (rate > 0 && priceVal > 0) {
+                const final = mnswmcRoundToThousand(rate * priceVal);
+                const saleFinal = (saleVal > 0) ? mnswmcRoundToThousand(rate * saleVal) : '';
+                const minFinal = (minVal > 0) ? mnswmcRoundToThousand(rate * minVal) : '';
+
                 if ($regularTomanInput.length) {
                     $regularTomanInput.val(final).trigger('change');
+                }
+                if ($saleTomanInput.length) {
+                    $saleTomanInput.val(saleFinal).trigger('change');
                 }
                 if ($minTomanInput.length && minFinal !== '') {
                     $minTomanInput.val(minFinal).trigger('change');
                 }
-            } else {
-                $preview.find('.rate').text('-');
-                $preview.find('.final').text('-');
-                $preview.find('.min-final').text('-');
             }
         }
 
@@ -253,21 +302,35 @@ jQuery(document).ready(function ($) {
         const $currencyFields = $context.find(
             '#_mnswmc_currency_id_' + index +
             ', #_mnswmc_regular_price_' + index +
+            ', #_mnswmc_sale_price_' + index +
             ', #_torob_scraper_min_price_currency_' + index
         );
         const $regular = $context.find('#variable_regular_price_' + index + ', input[name="variable_regular_price[' + index + ']"]').first();
+        const $sale = $context.find('#variable_sale_price_' + index + ', input[name="variable_sale_price[' + index + ']"]').first();
         const $preview = $('#mnswmc-preview-' + index);
 
         if (isChecked) {
             $currencyFields.closest('p.form-field').show();
             if ($minPriceToman.length) $minPriceToman.prop('readonly', true).css('background', '#f5f5f5');
             if ($regular.length) $regular.prop('readonly', true).css('background', '#f5f5f5');
+            if ($sale.length) $sale.prop('readonly', true).css('background', '#f5f5f5');
             if ($preview.length) $preview.show();
         } else {
             $currencyFields.closest('p.form-field').hide();
             if ($minPriceToman.length) $minPriceToman.prop('readonly', false).css('background', '');
             if ($regular.length) $regular.prop('readonly', false).css('background', '');
+            if ($sale.length) $sale.prop('readonly', false).css('background', '');
             if ($preview.length) $preview.hide();
+        }
+
+        // نمایش/مخفی کردن پیام اطلاع‌رسانی حالت پیشرفته (وریشن)
+        const $depType = $context.find('#_mnswmc_dependence_type_' + index);
+        if ($depType.length) {
+            const $notice = $context.find('.ani_navasan_advanced_notice').first();
+            if ($notice.length) $notice.toggle($depType.val() === 'advanced');
+            $depType.off('change.mnswmc_dep').on('change.mnswmc_dep', function () {
+                $notice.toggle($depType.val() === 'advanced');
+            });
         }
 
         // آپدیت preview پس از اعمال حالت
@@ -294,6 +357,7 @@ jQuery(document).ready(function ($) {
         $variation.find(
             '#_mnswmc_currency_id_' + index +
             ', #_mnswmc_regular_price_' + index +
+            ', #_mnswmc_sale_price_' + index +
             ', #_torob_scraper_min_price_currency_' + index
         ).off('input.mnswmc_var change.mnswmc_var').on('input.mnswmc_var change.mnswmc_var', function () {
             // debounce کوچک

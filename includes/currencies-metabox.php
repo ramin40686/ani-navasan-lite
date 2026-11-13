@@ -24,7 +24,7 @@ function ani_navasan_lite_currency_meta_box($post) {
 
     // مقادیر ذخیره شده قبلی
     $symbol = get_post_meta($post->ID, '_mnswmc_symbol', true); // مثل AED, USD
-    $rate   = get_post_meta($post->ID, '_mnswmc_rate', true);   // نرخ ارز به تومان
+    $rate   = ani_navasan_get_currency_rate($post->ID);         // نرخ ارز به تومان (سازگار با قرارداد افزونه اصلی)
     ?>
     <p>
         <label for="mnswmc_symbol"><strong>نماد اختصاری (ISO):</strong></label>
@@ -68,10 +68,10 @@ add_action('save_post_mnswmc', function ($post_id) {
         update_post_meta($post_id, '_mnswmc_symbol', sanitize_text_field($_POST['mnswmc_symbol']));
     }
 
-    // ذخیره نرخ ارز
+    // ذخیره نرخ ارز (با کلید استاندارد قرارداد داده‌ای افزونه اصلی)
     if (isset($_POST['mnswmc_rate'])) {
         $rate = floatval($_POST['mnswmc_rate']);
-        update_post_meta($post_id, '_mnswmc_rate', $rate);
+        update_post_meta($post_id, '_mnswmc_currency_value', $rate);
 
         // 📌 بعد از ذخیره نرخ، بروزرسانی محصولات همین ارز
         if ($rate > 0) {

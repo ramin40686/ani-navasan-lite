@@ -20,11 +20,9 @@ add_action('wp_ajax_mnswmc_get_exchange_rate', function () {
         wp_send_json_error(['message' => 'Currency not found'], 404);
     }
 
-    $rate   = get_post_meta($currency_id, '_mnswmc_rate', true);
+    $rate   = ani_navasan_get_currency_rate($currency_id);
     $symbol = get_post_meta($currency_id, '_mnswmc_symbol', true);
     $title  = $currency_post->post_title;
-
-    $rate = $rate !== '' ? floatval($rate) : 0;
 
     if ($rate <= 0) {
         wp_send_json_error(['message' => 'Rate not available'], 404);
