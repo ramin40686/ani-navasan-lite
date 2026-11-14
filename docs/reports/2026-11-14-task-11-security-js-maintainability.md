@@ -302,18 +302,25 @@ manual/code-review verification rather than an automated test.
 ### 10.1 Merge, Tag & Release (1.2.0)
 
 - **Merge method:** non-fast-forward (`--no-ff`) into `main`, preserving the task branch history.
-- **Merge commit SHA:** `MERGE_SHA_PLACEHOLDER`
-- **Final `main` HEAD (after merge):** `MAIN_HEAD_PLACEHOLDER`
-- **Annotated tag:** `1.2.0` → points to the merge commit `MERGE_SHA_PLACEHOLDER` (tag object SHA: `TAG_SHA_PLACEHOLDER`).
-- **GitHub Release:** `https://github.com/ramin40686/ani-navasan-lite/releases/tag/1.2.0`
-- **Remote sync:** `main` and `origin/main` synchronized; tag `1.2.0` pushed to `origin`.
+- **Merge commit SHA:** `454524a2ce4f8eb5e6dfb74dd9f1464c142821c7` (parents: `35d8c0a` main + `28b4ce9` task branch).
+- **Final `main` HEAD (after merge):** `454524a2ce4f8eb5e6dfb74dd9f1464c142821c7`.
+- **Annotated tag:** `1.2.0` → points to the merge commit `454524a2ce4f8eb5e6dfb74dd9f1464c142821c7` (tag object SHA: `29d19301bc1b45304cf5042a7bb64f2159b8a414`).
+- **GitHub Release:** `https://github.com/ramin40686/ani-navasan-lite/releases/tag/1.2.0` (published, not draft/prerelease).
+- **Remote sync:** `main` and `origin/main` synchronized at `454524a2ce4f8eb5e6dfb74dd9f1464c142821c7`; tag `1.2.0` pushed to `origin`.
 - **Post-merge test results:** recorded in §10.2.
 
 ### 10.2 Post-merge verification
 
-- PHP syntax checks, JavaScript syntax check, unit suite, integration suite, and fault-injection suite re-run after the merge (results recorded below).
-- Plugin version verified as `1.2.0` (header + runtime).
-- Authorized test data verified intact; working tree clean.
+Re-run on the authorized site (`anishop-package-test.local`, PHP 8.4.10 / WP 7.1.4 / WC 11.3.0) after the merge, with the plugin source synced to the site (version `1.2.0`):
+
+- **PHP syntax checks:** all plugin PHP files pass `php -l`.
+- **JavaScript syntax check:** `node --check assets/js/admin.js` passes.
+- **Unit suite:** 6/6 PASS.
+- **Integration suite:** 70/70 PASS (restore OK — all authorized posts, meta, lookup rows, and targeted transients verified).
+- **Fault-injection suite:** 16/16 PASS.
+- **Plugin version:** verified `1.2.0` (header + runtime `get_plugin_data()`).
+- **Authorized test data:** all baseline checks PASS (prices + currency rates intact).
+- **Working tree:** clean.
 
 ## 11. Test Environment and Restoration Status
 
