@@ -329,6 +329,6 @@ currencies, and lookup rows match).
 
 | # | Full SHA | Subject |
 |---|----------|---------|
-| 1 | (see final report) | test(task-10b): harden integration backup/restore + failure safety |
+| 1 | `4cb541f84d934e20282b5d3b7c5dad17a4c2778e` | test(task-10b): harden integration backup/restore + failure safety |
 | 2 | (this docs commit) | docs(task-10b): record commit hash and push status in report |
 
