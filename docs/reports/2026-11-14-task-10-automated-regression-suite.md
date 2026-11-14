@@ -150,7 +150,9 @@ Runs via `wp eval-file` against the authorized site. Key design points:
 - **Scenarios I0–I6** (see README §2): environment, simple save, variation save
   + isolation, rounding hook, recalculation for both currencies (with parent
   sync, sale-price preservation, and cross-currency isolation), attribute
-  serialization regression, and a final byte-for-byte restore verification.
+  serialization regression, and a final restore round-trip verification.
+  (Task 10b hardened the backup/restore to cover all modified tables — see
+  `docs/reports/2026-11-14-task-10b-integration-restore-safety.md`.)
 
 ### 5.6 Runner + docs
 
