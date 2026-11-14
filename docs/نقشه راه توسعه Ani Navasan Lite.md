@@ -116,14 +116,14 @@
 ---
 
 ## مرحله ۵ — آماده‌سازی انتشار نهایی
-وضعیت: در حال انجام (Task 16 — آماده‌سازی RC نسخه 1.2.1؛ merge/تگ/انتشار منتظر تأیید صریح مالک)
+وضعیت: ✅ تکمیل (نسخه 1.2.1 منتشر شد — merge به main + تگ رسمی + GitHub Release)
 
 | تسک | شرح | وضعیت |
 |---|---|---|
 | Task 13 | بازبینی نهایی کد و مستندات + ایجاد README/CHANGELOG | ✅ تکمیل (گزارش: `docs/reports/2026-11-14-task-13-final-readiness-review.md`) |
 | Task 14 | بررسی بسته نصب و حذف فایل‌های غیرضروری + ساخت ZIP آزمایشی 1.2.0 | ✅ تکمیل (گزارش: `docs/reports/2026-11-14-task-14-release-package-audit.md`) |
 | Task 15 | تست نصب، فعال‌سازی، غیرفعال‌سازی و به‌روزرسانی | ✅ تکمیل — همهٔ سناریوها PASS (گزارش: `docs/reports/2026-11-14-task-15-installation-lifecycle-tests.md`) |
-| Task 16 | انتشار نسخهٔ 1.2.1 پس از تأیید معیارهای پذیرش | 🔄 در حال انجام — RC آماده (هم‌ترازی نسخه‌ها + ZIP نهایی + SHA256 + Changelog + Release Notes)؛ **merge به main، تگ و GitHub Release منتظر تأیید صریح مالک** |
+| Task 16 | انتشار نسخهٔ 1.2.1 پس از تأیید معیارهای پذیرش | ✅ تکمیل — نسخه 1.2.1 منتشر شد (merge به main + تگ رسمی + GitHub Release) (گزارش: `docs/reports/2026-11-14-task-16-release-candidate-preparation.md`) |
 
 موارد نهایی:
 
