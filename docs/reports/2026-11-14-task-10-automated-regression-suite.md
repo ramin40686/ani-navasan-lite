@@ -247,7 +247,16 @@ backup exactly — confirming the suite leaves the site in its original state.
 
 - **Branch:** `test/task-10-automated-regression-suite`
 - **Base:** latest `origin/main`
-- **Commit hash:** `51333d0` (single commit on the branch)
 - **Push status:** pushed to `origin`
 - **Merged:** No (per project workflow — awaiting owner review).
+
+### 11.1 Commits
+
+| # | Full SHA | Subject |
+|---|----------|---------|
+| 1 | `0527e406d0715df04ed6173ed1cc35b6d1b73976` | test: add automated regression/test suite (Task 10) |
+| 2 | (this docs commit) | docs(task-10): record commit hash and push status in report |
+
+The main implementation commit is `0527e40` (short). Commit 2 only updates this
+report's git section and does not touch any test or plugin file.
 
