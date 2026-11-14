@@ -2,7 +2,7 @@
 /**
  * Plugin Name: نوسان آنی لایت (Ani Navasan Lite)
  * Description: نسخه لایت افزونه نوسان برای مدیریت فروش ارزی ووکامرس
- * Version: 1.1.0
+ * Version: 1.2.0
  * Author: ramin4068@gmail.com
  * Text Domain: ani-navasan-lite
  * Requires at least: 7.0.8
@@ -54,17 +54,8 @@ register_activation_hook(__FILE__, function () {
     }
 });
 
-add_action('admin_notices', function () {
-    $activated = get_option('ani_navasan_lite_activated', 0);
-    if ($activated == 1) {
-        ?>
-        <div class="notice notice-success is-dismissible">
-            <p>✅ افزونه <strong>نوسان آنی لایت</strong> فعال شد و آماده استفاده است.</p>
-        </div>
-        <?php
-        update_option('ani_navasan_lite_activated', 0); // مقدار رو صفر کن تا فقط بار اول بیاد
-    }
-});
+// پیام فعال‌سازی (فقط یک بار) در includes/init.php ثبت و نمایش داده می‌شود؛
+// این‌جا تکرار نمی‌شود تا منطق در یک نقطهٔ واحد باقی بماند.
 
 /**
  * ادامه‌ی کدهای افزونه (فقط اگر افزونه اصلی فعال نباشد)

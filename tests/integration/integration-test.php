@@ -1,0 +1,626 @@
+<?php
+/**
+ * Task 10b — Integration + Regression Test Suite for Ani Navasan Lite.
+ *
+ * Run against the AUTHORIZED local site (anishop-package-test.local) ONLY:
+ *
+ *   cd ~/Local\ Sites/anishop-package-test/app/public
+ *   wp eval-file /path/to/tests/integration/integration-test.php
+ *
+ * Uses ONLY the authorized test products (17613, 17615, 17616, 17617) and
+ * test currencies (17654, 17655).
+ *
+ * Backup / restore (hardened in Task 10b):
+ *   The suite captures the FULL state of every record it can modify and
+ *   restores it afterwards, then verifies the restoration. The captured
+ *   scope is limited to the authorized test products, their variations, and
+ *   the two authorized test currencies:
+ *
+ *     - wp_posts                    (ALL columns, all 6 authorized posts)
+ *     - wp_postmeta                 (ALL rows incl. duplicate keys, 6 posts)
+ *     - wp_wc_product_meta_lookup   (ALL columns, the 4 product IDs)
+ *     - wp_options (transients)     (targeted: options whose name references
+ *                                    a product ID — a safety net; none exist
+ *                                    for these products in the current site)
+ *
+ *   The restore runs inside a single DB transaction (all involved tables are
+ *   InnoDB on the target site; the engine is re-checked at runtime). Every
+ *   SQL operation is checked for failure; a failed query aborts the restore
+ *   (ROLLBACK) and is reported as a failure. Restoration is attempted even
+ *   when a test assertion fails or an ordinary PHP error occurs (try/finally
+ *   + a single shutdown-handler safety net + a restoration state flag).
+ *
+ *   The suite FAILS (non-zero exit, no success summary) if the restore or the
+ *   post-restore verification does not fully succeed.
+ *
+ * Scenarios:
+ *   I0  Environment + plugin load
+ *   I1  Simple product save handler (17613)
+ *   I2  Variation save handler (17616, 17617) + isolation
+ *   I3  Decimal rounding hook (17613)
+ *   [restore to baseline]
+ *   I4a Recalculation — currency A (17654) rate change 2000 -> 2500 -> 2000
+ *   I4b Recalculation — currency B (17655) rate change 2000 -> 2500 -> 2000
+ *   I5  Attribute serialization regression (17615) — controlled recalculation
+ *   [restore to baseline]
+ *   I6  Final state verification (full multi-table restore round-trip)
+ */
+
+// ---------------------------------------------------------------------------
+// Guards: must run in WP-CLI with the plugin active
+// ---------------------------------------------------------------------------
+if (!defined('WP_CLI') || !WP_CLI) {
+    fwrite(STDERR, "This test must be run via WP-CLI (wp eval-file).\n");
+    exit(1);
+}
+
+if (!is_plugin_active('ani-navasan-lite/ani-navasan-lite.php')) {
+    fwrite(STDERR, "Ani Navasan Lite plugin is not active.\n");
+    exit(1);
+}
+
+// ---------------------------------------------------------------------------
+// Authorized test data
+// ---------------------------------------------------------------------------
+define('T10_SIMPLE_PRODUCT', 17613);
+define('T10_VARIABLE_PRODUCT', 17615);
+define('T10_VARIATION_A', 17616); // currency A (17654)
+define('T10_VARIATION_B', 17617); // currency B (17655)
+define('T10_CURRENCY_A', 17654);
+define('T10_CURRENCY_B', 17655);
+
+// The six authorized posts (products + variations + currencies) and the four
+// product IDs that have rows in the WooCommerce product lookup table.
+$GLOBALS['t10b_post_ids'] = [
+    T10_SIMPLE_PRODUCT,
+    T10_VARIABLE_PRODUCT,
+    T10_VARIATION_A,
+    T10_VARIATION_B,
+    T10_CURRENCY_A,
+    T10_CURRENCY_B,
+];
+$GLOBALS['t10b_product_ids'] = [
+    T10_SIMPLE_PRODUCT,
+    T10_VARIABLE_PRODUCT,
+    T10_VARIATION_A,
+    T10_VARIATION_B,
+];
+
+// Set an admin user (required for capability checks in save handlers)
+$admin_id = 1;
+if (!get_user_by('id', $admin_id)) {
+    $admin_id = (int) get_option('administrator_id', 0);
+}
+wp_set_current_user($admin_id);
+
+// ---------------------------------------------------------------------------
+// Test state (use $GLOBALS so the counters work regardless of the scope
+// wp eval-file includes this file in)
+// ---------------------------------------------------------------------------
+$GLOBALS['t10_passed'] = 0;
+$GLOBALS['t10_failed'] = 0;
+
+// Restoration state (Task 10b failure safety)
+$GLOBALS['t10b_backup']       = null;   // the captured snapshot
+$GLOBALS['t10b_restored']     = false;  // true once a restore has been attempted
+$GLOBALS['t10b_restore_ok']   = false;  // true only if the restore fully succeeded
+$GLOBALS['t10b_restore_errs'] = [];     // restore error messages
+$GLOBALS['t10b_exception']    = null;   // an uncaught Throwable from the scenarios
+
+function t10_check($name, $actual, $expected) {
+    $ok = ($actual === $expected);
+    if ($ok) {
+        echo "  PASS: {$name}\n";
+        $GLOBALS['t10_passed']++;
+    } else {
+        echo "  FAIL: {$name}\n";
+        echo "     Expected: " . var_export($expected, true) . "\n";
+        echo "     Actual:   " . var_export($actual, true) . "\n";
+        $GLOBALS['t10_failed']++;
+    }
+}
+
+function t10_price($product_id) {
+    $p = wc_get_product($product_id);
+    return $p ? (string) $p->get_price() : 'MISSING';
+}
+
+function t10_regular($product_id) {
+    $p = wc_get_product($product_id);
+    return $p ? (string) $p->get_regular_price() : 'MISSING';
+}
+
+function t10_sale($product_id) {
+    $p = wc_get_product($product_id);
+    return $p ? (string) $p->get_sale_price() : 'MISSING';
+}
+
+// ---------------------------------------------------------------------------
+// Backup / Restore / Verify (Task 10c — hardened, multi-table, transactional,
+// every read/write validated). Shared with the fault-injection suite so both
+// exercise the exact same code paths.
+// ---------------------------------------------------------------------------
+require_once __DIR__ . '/backup-restore.php';
+
+
+// Save a currency through the REAL admin save workflow (mirrors the compat
+// harness): populate $_POST as the currency metabox form would, then call
+// wp_update_post(). That fires the genuine save_post_mnswmc handler, which
+// verifies the nonce + capability, persists the rate and fires
+// ani_navasan_lite_recalc_currency.
+function t10_save_currency($post_id, $symbol, $rate) {
+    $_POST['mnswmc_meta_nonce'] = wp_create_nonce('mnswmc_meta_save');
+    $_POST['mnswmc_symbol']     = $symbol;
+    $_POST['mnswmc_rate']       = (string) $rate;
+    $result = wp_update_post(
+        [
+            'ID'          => $post_id,
+            'post_type'   => 'mnswmc',
+            'post_status' => 'publish',
+        ],
+        true
+    );
+    unset($_POST['mnswmc_meta_nonce'], $_POST['mnswmc_symbol'], $_POST['mnswmc_rate']);
+    return $result;
+}
+
+/**
+ * Attempt the restore exactly once (guarded by the restoration state flag).
+ * Used by both the try/finally path and the shutdown-handler safety net so
+ * the restore is never performed twice.
+ */
+function t10b_do_restore() {
+    if ($GLOBALS['t10b_restored'] || $GLOBALS['t10b_backup'] === null) {
+        return;
+    }
+    $GLOBALS['t10b_restored'] = true;
+    $result = t10b_restore_state($GLOBALS['t10b_backup']);
+    $GLOBALS['t10b_restore_ok']   = $result['ok'];
+    $GLOBALS['t10b_restore_errs'] = $result['errors'];
+    // Clear the post object cache so subsequent reads see the restored rows.
+    // NOTE (Task 10c): do NOT call wc_delete_product_transients() here — the
+    // targeted product transients are part of the restored state (captured in
+    // the backup and re-inserted by t10b_restore_state()). Deleting them after
+    // the restore would remove the very rows the verification then checks,
+    // producing a false "transients missing" mismatch.
+    foreach ($GLOBALS['t10b_post_ids'] as $id) {
+        clean_post_cache($id);
+    }
+}
+
+// Single shutdown-handler safety net. It only acts if the try/finally path did
+// not already restore (e.g. a fatal error aborted the script). It cannot
+// protect against process termination, a server crash, power loss, or a
+// database outage — those are documented limitations, not handled here.
+register_shutdown_function(function () {
+    if (!$GLOBALS['t10b_restored'] && $GLOBALS['t10b_backup'] !== null) {
+        t10b_do_restore();
+        if (!$GLOBALS['t10b_restore_ok']) {
+            fwrite(STDERR, "\n[shutdown] RESTORE FAILED — site may be left modified:\n");
+            foreach ($GLOBALS['t10b_restore_errs'] as $e) {
+                fwrite(STDERR, "  - {$e}\n");
+            }
+        }
+    }
+});
+
+
+// ===========================================================================
+// I0 — Environment + plugin load
+// ===========================================================================
+echo "\n=== I0: Environment + plugin load ===\n";
+t10_check('I0.1 plugin active', is_plugin_active('ani-navasan-lite/ani-navasan-lite.php'), true);
+t10_check('I0.2 round fn exists', function_exists('ani_navasan_round_to_thousand'), true);
+t10_check('I0.3 rate fn exists', function_exists('ani_navasan_get_currency_rate'), true);
+t10_check('I0.4 cpt registered', post_type_exists('mnswmc'), true);
+t10_check('I0.5 simple product exists', (bool) wc_get_product(T10_SIMPLE_PRODUCT), true);
+t10_check('I0.6 variable product exists', (bool) wc_get_product(T10_VARIABLE_PRODUCT), true);
+t10_check('I0.7 variation A exists', (bool) wc_get_product(T10_VARIATION_A), true);
+t10_check('I0.8 variation B exists', (bool) wc_get_product(T10_VARIATION_B), true);
+
+// ===========================================================================
+// Backup the authorized state (products + variations + currencies)
+// Task 10c: a failed/incomplete backup aborts the run BEFORE any mutation.
+// ===========================================================================
+try {
+    $GLOBALS['t10b_backup'] = t10b_backup_state();
+} catch (T10c_BackupException $e) {
+    echo "\n[backup] FATAL: " . $e->getMessage() . "\n";
+    echo "[backup] No test mutation was performed. Aborting.\n";
+    exit(1);
+}
+$engines = t10b_table_engines();
+echo "\n[backup] captured " . count($GLOBALS['t10b_backup']['posts']) . " posts, "
+    . count($GLOBALS['t10b_backup']['lookup']) . " lookup rows, "
+    . count($GLOBALS['t10b_backup']['options']) . " targeted options\n";
+echo "[backup] table engines: " . implode(', ', array_map(
+    function ($k, $v) { return "{$k}={$v}"; },
+    array_keys($engines),
+    array_values($engines)
+)) . "\n";
+
+// Task 10c: transaction support must be established before any mutation.
+if (!t10c_transaction_support_established($engines)) {
+    echo "[backup] FATAL: transaction support not established (all required tables must be InnoDB). Aborting before any mutation.\n";
+    exit(1);
+}
+
+
+// ===========================================================================
+// Scenarios I1–I5 run inside try/finally so the restore is always attempted,
+// even if a scenario throws an ordinary PHP error.
+// ===========================================================================
+try {
+
+// ===========================================================================
+// I1 — Simple product save handler (17613)
+// ===========================================================================
+echo "\n=== I1: Simple product save handler (17613) ===\n";
+
+$_POST['_mnswmc_active']                   = 'yes';
+$_POST['_mnswmc_currency_id']              = (string) T10_CURRENCY_A;
+$_POST['_mnswmc_regular_price']            = '100.556';
+$_POST['_mnswmc_sale_price']               = '90.123';
+$_POST['_mnswmc_dependence_type']          = 'advanced';
+$_POST['_torob_scraper_min_price_currency'] = '86.789';
+
+$product = wc_get_product(T10_SIMPLE_PRODUCT);
+do_action('woocommerce_admin_process_product_object', $product);
+$product->save();
+
+// Meta persisted (unrounded — the rounding hook is tested separately in I3)
+t10_check('I1.1 _mnswmc_active', get_post_meta(T10_SIMPLE_PRODUCT, '_mnswmc_active', true), 'yes');
+t10_check('I1.2 _mnswmc_currency_id', get_post_meta(T10_SIMPLE_PRODUCT, '_mnswmc_currency_id', true), (string) T10_CURRENCY_A);
+t10_check('I1.3 _mnswmc_regular_price (unrounded)', get_post_meta(T10_SIMPLE_PRODUCT, '_mnswmc_regular_price', true), '100.556');
+t10_check('I1.4 _mnswmc_sale_price (unrounded)', get_post_meta(T10_SIMPLE_PRODUCT, '_mnswmc_sale_price', true), '90.123');
+t10_check('I1.5 _mnswmc_dependence_type', get_post_meta(T10_SIMPLE_PRODUCT, '_mnswmc_dependence_type', true), 'advanced');
+t10_check('I1.6 _torob_scraper_min_price_currency (unrounded)', get_post_meta(T10_SIMPLE_PRODUCT, '_torob_scraper_min_price_currency', true), '86.789');
+
+// Prices computed from the unrounded currency values (rate 2000)
+t10_check('I1.7 regular price (2000*100.556=201112->201000)', t10_regular(T10_SIMPLE_PRODUCT), '201000');
+t10_check('I1.8 sale price (2000*90.123=180246->180000)', t10_sale(T10_SIMPLE_PRODUCT), '180000');
+t10_check('I1.9 _torob_scraper_min_price (2000*86.789=173578->174000)', get_post_meta(T10_SIMPLE_PRODUCT, '_torob_scraper_min_price', true), '174000');
+
+unset($_POST['_mnswmc_active'], $_POST['_mnswmc_currency_id'], $_POST['_mnswmc_regular_price'], $_POST['_mnswmc_sale_price'], $_POST['_mnswmc_dependence_type'], $_POST['_torob_scraper_min_price_currency']);
+
+
+
+// ===========================================================================
+// I2 — Variation save handler (17616, 17617) + isolation
+// ===========================================================================
+echo "\n=== I2: Variation save handler (17616, 17617) ===\n";
+
+// Variation A (17616, loop index 0) — currency A
+$_POST['_mnswmc_active'][0]                   = 'yes';
+$_POST['_mnswmc_currency_id'][0]              = (string) T10_CURRENCY_A;
+$_POST['_mnswmc_regular_price'][0]            = '100';
+$_POST['_mnswmc_sale_price'][0]               = '';
+$_POST['_mnswmc_dependence_type'][0]          = 'advanced';
+$_POST['_torob_scraper_min_price_currency'][0] = '86';
+
+// Variation B (17617, loop index 1) — currency B
+$_POST['_mnswmc_active'][1]                   = 'yes';
+$_POST['_mnswmc_currency_id'][1]              = (string) T10_CURRENCY_B;
+$_POST['_mnswmc_regular_price'][1]            = '200';
+$_POST['_mnswmc_sale_price'][1]               = '180';
+$_POST['_mnswmc_dependence_type'][1]          = 'simple';
+$_POST['_torob_scraper_min_price_currency'][1] = '170';
+
+do_action('woocommerce_save_product_variation', T10_VARIATION_A, 0);
+do_action('woocommerce_save_product_variation', T10_VARIATION_B, 1);
+
+// Variation A (17616)
+t10_check('I2.1 17616 _mnswmc_active', get_post_meta(T10_VARIATION_A, '_mnswmc_active', true), 'yes');
+t10_check('I2.2 17616 _mnswmc_currency_id', get_post_meta(T10_VARIATION_A, '_mnswmc_currency_id', true), (string) T10_CURRENCY_A);
+t10_check('I2.3 17616 _mnswmc_regular_price', get_post_meta(T10_VARIATION_A, '_mnswmc_regular_price', true), '100');
+t10_check('I2.4 17616 _mnswmc_sale_price (empty)', get_post_meta(T10_VARIATION_A, '_mnswmc_sale_price', true), '');
+t10_check('I2.5 17616 _mnswmc_dependence_type', get_post_meta(T10_VARIATION_A, '_mnswmc_dependence_type', true), 'advanced');
+t10_check('I2.6 17616 regular (2000*100=200000)', t10_regular(T10_VARIATION_A), '200000');
+t10_check('I2.7 17616 sale empty (no WC sale price)', t10_sale(T10_VARIATION_A), '');
+
+// Variation B (17617)
+t10_check('I2.8 17617 _mnswmc_active', get_post_meta(T10_VARIATION_B, '_mnswmc_active', true), 'yes');
+t10_check('I2.9 17617 _mnswmc_currency_id', get_post_meta(T10_VARIATION_B, '_mnswmc_currency_id', true), (string) T10_CURRENCY_B);
+t10_check('I2.10 17617 _mnswmc_regular_price', get_post_meta(T10_VARIATION_B, '_mnswmc_regular_price', true), '200');
+t10_check('I2.11 17617 _mnswmc_sale_price', get_post_meta(T10_VARIATION_B, '_mnswmc_sale_price', true), '180');
+t10_check('I2.12 17617 _mnswmc_dependence_type', get_post_meta(T10_VARIATION_B, '_mnswmc_dependence_type', true), 'simple');
+t10_check('I2.13 17617 regular (2000*200=400000)', t10_regular(T10_VARIATION_B), '400000');
+t10_check('I2.14 17617 sale (2000*180=360000)', t10_sale(T10_VARIATION_B), '360000');
+
+// Cross-variation isolation
+t10_check('I2.15 17616 and 17617 currency ids differ', get_post_meta(T10_VARIATION_A, '_mnswmc_currency_id', true) !== get_post_meta(T10_VARIATION_B, '_mnswmc_currency_id', true), true);
+
+unset($_POST['_mnswmc_active'], $_POST['_mnswmc_currency_id'], $_POST['_mnswmc_regular_price'], $_POST['_mnswmc_sale_price'], $_POST['_mnswmc_dependence_type'], $_POST['_torob_scraper_min_price_currency']);
+
+
+// ===========================================================================
+// I3 — Decimal rounding hook (17613)
+// ===========================================================================
+echo "\n=== I3: Decimal rounding hook (17613) ===\n";
+
+$_POST['_mnswmc_regular_price']             = '100.556';
+$_POST['_mnswmc_sale_price']                = '90.123';
+$_POST['_torob_scraper_min_price_currency'] = '86.789';
+
+do_action('save_post_product', T10_SIMPLE_PRODUCT, get_post(T10_SIMPLE_PRODUCT), true);
+
+t10_check('I3.1 _mnswmc_regular_price rounded to 2dp', (string) get_post_meta(T10_SIMPLE_PRODUCT, '_mnswmc_regular_price', true), '100.56');
+t10_check('I3.2 _mnswmc_sale_price rounded to 2dp', (string) get_post_meta(T10_SIMPLE_PRODUCT, '_mnswmc_sale_price', true), '90.12');
+t10_check('I3.3 _torob_scraper_min_price_currency rounded to 2dp', (string) get_post_meta(T10_SIMPLE_PRODUCT, '_torob_scraper_min_price_currency', true), '86.79');
+
+unset($_POST['_mnswmc_regular_price'], $_POST['_mnswmc_sale_price'], $_POST['_torob_scraper_min_price_currency']);
+
+// ===========================================================================
+// Restore to baseline before the recalculation scenarios (checked)
+// ===========================================================================
+$mid = t10b_restore_state($GLOBALS['t10b_backup']);
+foreach ($GLOBALS['t10b_post_ids'] as $id) {
+    clean_post_cache($id);
+    if (function_exists('wc_delete_product_transients')) { wc_delete_product_transients($id); }
+}
+t10_check('I3.4 mid-run restore to baseline succeeded', $mid['ok'], true);
+if (!$mid['ok']) {
+    foreach ($mid['errors'] as $e) { echo "     restore error: {$e}\n"; }
+}
+echo "\n[restore] baseline restored before recalculation scenarios\n";
+
+
+// ===========================================================================
+// I4a — Recalculation: currency A (17654) rate change 2000 -> 2500 -> 2000
+// ===========================================================================
+echo "\n=== I4a: Recalculation — currency A (17654) rate change ===\n";
+
+// Baseline (after restore):
+//   17613 (simple, A): regcur=100, salecur=''  -> reg=200000, sale=120000 (WC sale)
+//   17616 (var, A):    regcur=100, salecur=''  -> reg=200000, sale=''
+//   17617 (var, B):    regcur=200, salecur=180 -> reg=400000, sale=360000
+//   17615 (parent):    _price=200000
+
+t10_save_currency(T10_CURRENCY_A, 'TST', '2500');
+
+t10_check('I4a.1 17613 regular (100*2500=250000)', t10_regular(T10_SIMPLE_PRODUCT), '250000');
+t10_check('I4a.2 17613 sale preserved (empty salecur)', t10_sale(T10_SIMPLE_PRODUCT), '120000');
+t10_check('I4a.3 17616 regular (100*2500=250000)', t10_regular(T10_VARIATION_A), '250000');
+t10_check('I4a.4 17616 sale empty (preserved)', t10_sale(T10_VARIATION_A), '');
+t10_check('I4a.5 17617 regular unchanged (currency B)', t10_regular(T10_VARIATION_B), '400000');
+t10_check('I4a.6 17617 sale unchanged (currency B)', t10_sale(T10_VARIATION_B), '360000');
+t10_check('I4a.7 17615 parent price (min 250000,360000)', t10_price(T10_VARIABLE_PRODUCT), '250000');
+
+t10_save_currency(T10_CURRENCY_A, 'TST', '2000');
+
+t10_check('I4a.8 17613 regular restored (200000)', t10_regular(T10_SIMPLE_PRODUCT), '200000');
+t10_check('I4a.9 17613 sale preserved (120000)', t10_sale(T10_SIMPLE_PRODUCT), '120000');
+t10_check('I4a.10 17616 regular restored (200000)', t10_regular(T10_VARIATION_A), '200000');
+t10_check('I4a.11 17617 regular unchanged (400000)', t10_regular(T10_VARIATION_B), '400000');
+t10_check('I4a.12 17615 parent price restored (200000)', t10_price(T10_VARIABLE_PRODUCT), '200000');
+
+// ===========================================================================
+// I4b — Recalculation: currency B (17655) rate change 2000 -> 2500 -> 2000
+// ===========================================================================
+echo "\n=== I4b: Recalculation — currency B (17655) rate change ===\n";
+
+t10_save_currency(T10_CURRENCY_B, 'LEG', '2500');
+
+t10_check('I4b.1 17617 regular (200*2500=500000)', t10_regular(T10_VARIATION_B), '500000');
+t10_check('I4b.2 17617 sale (180*2500=450000)', t10_sale(T10_VARIATION_B), '450000');
+t10_check('I4b.3 17613 regular unchanged (currency A)', t10_regular(T10_SIMPLE_PRODUCT), '200000');
+t10_check('I4b.4 17616 regular unchanged (currency A)', t10_regular(T10_VARIATION_A), '200000');
+t10_check('I4b.5 17615 parent price (min 200000,450000)', t10_price(T10_VARIABLE_PRODUCT), '200000');
+
+t10_save_currency(T10_CURRENCY_B, 'LEG', '2000');
+
+t10_check('I4b.6 17617 regular restored (400000)', t10_regular(T10_VARIATION_B), '400000');
+t10_check('I4b.7 17617 sale restored (360000)', t10_sale(T10_VARIATION_B), '360000');
+t10_check('I4b.8 17615 parent price restored (200000)', t10_price(T10_VARIABLE_PRODUCT), '200000');
+
+
+// ===========================================================================
+// I5 — Attribute serialization regression (17615)
+//
+// The recalculation handler syncs variable parents via
+// WC_Product_Variable::sync($parent, false) specifically to AVOID re-persisting
+// _product_attributes (which would double-serialize it). This scenario performs
+// a real, controlled synchronization operation (a currency-rate recalculation
+// that syncs the parent) and then verifies that _product_attributes is still a
+// well-formed array with its original data intact — not a double-serialized
+// string.
+// ===========================================================================
+echo "\n=== I5: Attribute serialization regression (17615) ===\n";
+
+// 1. Capture the original attribute metadata (unserialized value).
+$orig_attrs = get_post_meta(T10_VARIABLE_PRODUCT, '_product_attributes', true);
+
+if ($orig_attrs === '' || $orig_attrs === null) {
+    echo "  SKIP: 17615 has no _product_attributes (nothing to verify)\n";
+} else {
+    // 2. Perform a controlled synchronization operation: a currency-rate
+    //    recalculation (2000 -> 2500 -> 2000) that syncs the variable parent.
+    t10_save_currency(T10_CURRENCY_A, 'TST', '2500');
+    t10_save_currency(T10_CURRENCY_A, 'TST', '2000');
+
+    // 3. Read _product_attributes after the operation.
+    $new_attrs = get_post_meta(T10_VARIABLE_PRODUCT, '_product_attributes', true);
+
+    // 4. Verify it remains a well-formed array (not double-serialized).
+    t10_check('I5.1 _product_attributes is an array after recalculation', is_array($new_attrs), true);
+    t10_check('I5.2 _product_attributes is not a serialized string', !is_string($new_attrs), true);
+
+    // 5. Verify the original attribute data is preserved (no loss / alteration).
+    t10_check('I5.3 _product_attributes data unchanged after recalculation', $new_attrs, $orig_attrs);
+
+    // 6. Verify the raw stored value unserializes to an array in ONE step
+    //    (a double-serialized value would unserialize to a string, not an array).
+    //    Read the raw stored value directly from the DB (get_post_meta()
+    //    unserializes, so it cannot reveal double-serialization).
+    global $wpdb;
+    $new_attrs_raw = $wpdb->get_var($wpdb->prepare(
+        "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = %s",
+        T10_VARIABLE_PRODUCT,
+        '_product_attributes'
+    ));
+    if (is_string($new_attrs_raw)) {
+        $unserialized_once = @unserialize($new_attrs_raw);
+        t10_check('I5.4 raw stored value unserializes to an array (not double-serialized)', is_array($unserialized_once), true);
+    } else {
+        t10_check('I5.4 raw stored value is a string (serializable meta)', is_string($new_attrs_raw), true);
+    }
+}
+
+
+// ===========================================================================
+// I7 — Security regression: currency save handler protections (Task 11)
+//
+// Verifies the security controls on the save_post_mnswmc handler so it cannot
+// be triggered in an unauthorized context:
+//   - a missing or invalid nonce is rejected (rate not updated);
+//   - a user without edit_post capability is rejected (rate not updated).
+// The handler returns early in each case, so no mutation occurs and the
+// backup/restore baseline is unaffected.
+// ===========================================================================
+echo "\n=== I7: Security regression — currency save handler protections ===\n";
+
+$baseline_rate = get_post_meta(T10_CURRENCY_A, '_mnswmc_currency_value', true);
+
+// I7.1: an invalid nonce is rejected.
+$_POST['mnswmc_meta_nonce'] = 'invalid-nonce-value';
+$_POST['mnswmc_rate']       = '99999';
+do_action('save_post_mnswmc', T10_CURRENCY_A);
+unset($_POST['mnswmc_meta_nonce'], $_POST['mnswmc_rate']);
+t10_check('I7.1 invalid nonce rejected (rate unchanged)', get_post_meta(T10_CURRENCY_A, '_mnswmc_currency_value', true), $baseline_rate);
+
+// I7.2: a missing nonce is rejected.
+$_POST['mnswmc_rate'] = '99999';
+do_action('save_post_mnswmc', T10_CURRENCY_A);
+unset($_POST['mnswmc_rate']);
+t10_check('I7.2 missing nonce rejected (rate unchanged)', get_post_meta(T10_CURRENCY_A, '_mnswmc_currency_value', true), $baseline_rate);
+
+// I7.3: a valid nonce but insufficient capability is rejected.
+$_POST['mnswmc_meta_nonce'] = wp_create_nonce('mnswmc_meta_save');
+$_POST['mnswmc_rate']       = '99999';
+wp_set_current_user(0); // not logged in -> no edit_post capability
+do_action('save_post_mnswmc', T10_CURRENCY_A);
+wp_set_current_user($admin_id); // restore the admin user for subsequent tests
+unset($_POST['mnswmc_meta_nonce'], $_POST['mnswmc_rate']);
+t10_check('I7.3 insufficient capability rejected (rate unchanged)', get_post_meta(T10_CURRENCY_A, '_mnswmc_currency_value', true), $baseline_rate);
+
+
+// ===========================================================================
+// J1 — JavaScript loading scope (Task 11)
+//
+// The admin JS (mnswmc-admin-js) is now scoped to product edit / new-product
+// screens only (matching the CSS). This scenario verifies the scoping by
+// calling the real enqueue function with different admin-screen contexts and
+// checking whether the script is registered:
+//   - enqueued on a product edit screen (post.php + product);
+//   - enqueued on a new-product screen (post-new.php + post_type=product);
+//   - NOT enqueued on the dashboard (index.php);
+//   - NOT enqueued on a non-product post edit screen (post.php + page).
+// ===========================================================================
+echo "\n=== J1: JavaScript loading scope ===\n";
+
+$orig_post = $GLOBALS['post'] ?? null;
+
+// J1.1: product edit screen -> enqueued.
+wp_deregister_script('mnswmc-admin-js');
+$GLOBALS['post'] = get_post(T10_SIMPLE_PRODUCT);
+mnswmc_enqueue_admin_scripts('post.php');
+t10_check('J1.1 JS enqueued on product edit screen', (bool) wp_scripts()->query('mnswmc-admin-js', 'registered'), true);
+
+// J1.2: new-product screen -> enqueued.
+wp_deregister_script('mnswmc-admin-js');
+$GLOBALS['post'] = null;
+$_GET['post_type'] = 'product';
+mnswmc_enqueue_admin_scripts('post-new.php');
+unset($_GET['post_type']);
+t10_check('J1.2 JS enqueued on new-product screen', (bool) wp_scripts()->query('mnswmc-admin-js', 'registered'), true);
+
+// J1.3: dashboard -> not enqueued.
+wp_deregister_script('mnswmc-admin-js');
+$GLOBALS['post'] = null;
+mnswmc_enqueue_admin_scripts('index.php');
+t10_check('J1.3 JS not enqueued on dashboard', (bool) wp_scripts()->query('mnswmc-admin-js', 'registered'), false);
+
+// J1.4: non-product post edit screen -> not enqueued.
+wp_deregister_script('mnswmc-admin-js');
+$GLOBALS['post'] = new WP_Post((object) ['ID' => 999999, 'post_type' => 'page', 'post_status' => 'publish']);
+mnswmc_enqueue_admin_scripts('post.php');
+t10_check('J1.4 JS not enqueued on non-product post screen', (bool) wp_scripts()->query('mnswmc-admin-js', 'registered'), false);
+
+// Restore the original $post.
+$GLOBALS['post'] = $orig_post;
+
+
+} catch (Throwable $e) {
+    // An ordinary PHP error in a scenario. Record it; the finally block still
+    // attempts the restore. The original failure is NOT masked by the restore.
+    $GLOBALS['t10b_exception'] = $e;
+    echo "\n[error] scenario aborted: " . get_class($e) . ": " . $e->getMessage() . "\n";
+    echo "         at " . $e->getFile() . ":" . $e->getLine() . "\n";
+} finally {
+    // Always attempt the final restore (guarded so it runs at most once).
+    t10b_do_restore();
+}
+
+// ===========================================================================
+// I6 — Final state verification (full multi-table restore round-trip)
+// ===========================================================================
+echo "\n=== I6: Final state verification (restore round-trip) ===\n";
+
+t10_check('I6.0 final restore was attempted', $GLOBALS['t10b_restored'], true);
+t10_check('I6.1 final restore succeeded', $GLOBALS['t10b_restore_ok'], true);
+if (!$GLOBALS['t10b_restore_ok']) {
+    foreach ($GLOBALS['t10b_restore_errs'] as $e) {
+        echo "     restore error: {$e}\n";
+    }
+}
+
+// Only run the row-by-row verification if the restore reported success.
+if ($GLOBALS['t10b_restore_ok']) {
+    $verify = t10b_verify_restore($GLOBALS['t10b_backup']);
+    t10_check('I6.2 all backed-up records match the current DB state', $verify['ok'], true);
+    if (!$verify['ok']) {
+        foreach ($verify['mismatches'] as $m) {
+            echo "     mismatch: {$m}\n";
+        }
+    }
+} else {
+    // The restore failed; record the verification as failed (not skipped).
+    t10_check('I6.2 all backed-up records match the current DB state', false, true);
+}
+
+// ===========================================================================
+// Summary
+// ===========================================================================
+$t10_passed = $GLOBALS['t10_passed'];
+$t10_failed = $GLOBALS['t10_failed'];
+$total = $t10_passed + $t10_failed;
+
+echo "\n" . str_repeat('=', 50) . "\n";
+
+// A scenario exception is a hard failure even if the counters look clean.
+$had_exception = ($GLOBALS['t10b_exception'] !== null);
+$restore_failed = !$GLOBALS['t10b_restore_ok'];
+
+// Never print a "success" summary when the restore or verification failed.
+if ($restore_failed || $had_exception) {
+    echo "INTEGRATION SUITE: FAILED (restore/exception)\n";
+    if ($had_exception) {
+        echo "  Scenario exception: " . get_class($GLOBALS['t10b_exception']) . ": " . $GLOBALS['t10b_exception']->getMessage() . "\n";
+    }
+    if ($restore_failed) {
+        echo "  Restore FAILED — the site may be left in a modified state.\n";
+        foreach ($GLOBALS['t10b_restore_errs'] as $e) {
+            echo "    - {$e}\n";
+        }
+    }
+    echo "  Checks: Total={$total}, Passed={$t10_passed}, Failed={$t10_failed}\n";
+    echo str_repeat('=', 50) . "\n";
+    exit(1);
+}
+
+echo "INTEGRATION SUITE: Total: {$total}, Passed: {$t10_passed}, Failed: {$t10_failed}\n";
+echo "Restore: OK (all authorized posts, meta, lookup rows, and targeted transients verified)\n";
+echo str_repeat('=', 50) . "\n";
+
+exit($t10_failed === 0 ? 0 : 1);
+
