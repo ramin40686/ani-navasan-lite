@@ -151,11 +151,11 @@ The final `1.2.1` release ZIP was built at `/tmp/stage5/ani-navasan-lite-1.2.1.z
 
 ## 12. Commit Hash
 
-(Recorded after commit)
+`2d1b9483837cec8dc312ceb93c6cffd3b68bcf94` (short: `2d1b948`)
 
 ## 13. Push Status
 
-(Recorded after push)
+Pushed to `origin` — `release/stage-5-final-preparation` → `origin/release/stage-5-final-preparation` (at `2d1b948`). **Not merged** (per project workflow: the project owner reviews and makes the final decision).
 
 ---
 
