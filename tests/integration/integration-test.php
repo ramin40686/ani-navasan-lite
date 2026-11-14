@@ -136,359 +136,11 @@ function t10_sale($product_id) {
 }
 
 // ---------------------------------------------------------------------------
-// Backup / Restore (Task 10b — hardened, multi-table, transactional)
+// Backup / Restore / Verify (Task 10c — hardened, multi-table, transactional,
+// every read/write validated). Shared with the fault-injection suite so both
+// exercise the exact same code paths.
 // ---------------------------------------------------------------------------
-
-/**
- * Capture the full state of every record the suite can modify.
- *
- * Returns an array with keys:
- *   posts    => [ post_id => [col => value, ...] ]        (ALL columns)
- *   postmeta => [ post_id => [ [meta_id,post_id,meta_key,meta_value], ... ] ]
- *   lookup   => [ product_id => [col => value, ...] ]     (ALL columns)
- *   options  => [ [option_name, option_value], ... ]      (targeted transients)
- *
- * Values are stored exactly as returned by the database (no serialization or
- * normalization), so the restore can write them back verbatim.
- */
-function t10b_backup_state($post_ids, $product_ids) {
-    global $wpdb;
-    $backup = ['posts' => [], 'postmeta' => [], 'lookup' => [], 'options' => []];
-
-    // wp_posts: full rows (all columns)
-    foreach ($post_ids as $id) {
-        $row = $wpdb->get_row(
-            $wpdb->prepare("SELECT * FROM {$wpdb->posts} WHERE ID = %d", $id),
-            ARRAY_A
-        );
-        if ($row) {
-            $backup['posts'][$id] = $row;
-        }
-    }
-
-    // wp_postmeta: full rows (preserving meta_id, duplicate keys, order)
-    foreach ($post_ids as $id) {
-        $rows = $wpdb->get_results(
-            $wpdb->prepare(
-                "SELECT meta_id, post_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id = %d ORDER BY meta_id",
-                $id
-            ),
-            ARRAY_A
-        );
-        $backup['postmeta'][$id] = $rows ? $rows : [];
-    }
-
-    // wp_wc_product_meta_lookup: full rows (all columns)
-    foreach ($product_ids as $id) {
-        $row = $wpdb->get_row(
-            $wpdb->prepare(
-                "SELECT * FROM {$wpdb->prefix}wc_product_meta_lookup WHERE product_id = %d",
-                $id
-            ),
-            ARRAY_A
-        );
-        if ($row) {
-            $backup['lookup'][$id] = $row;
-        }
-    }
-
-    // wp_options (transients): targeted safety net — only options whose name
-    // references one of the product IDs. None exist for these products on the
-    // current site, so this is normally an empty no-op.
-    $like_clauses = [];
-    $like_params  = [];
-    foreach ($product_ids as $id) {
-        $like_clauses[] = 'option_name LIKE %s';
-        $like_params[]  = "%{$id}%";
-    }
-    if ($like_clauses) {
-        $sql  = "SELECT option_name, option_value FROM {$wpdb->prefix}options WHERE " . implode(' OR ', $like_clauses);
-        $rows = $wpdb->get_results($wpdb->prepare($sql, ...$like_params), ARRAY_A);
-        $backup['options'] = $rows ? $rows : [];
-    }
-
-    return $backup;
-}
-
-/**
- * Report the storage engine of every table the restore touches.
- * Returns [ label => engine ]. Used to confirm transaction support.
- */
-function t10b_table_engines() {
-    global $wpdb;
-    $tables = [
-        'posts'    => $wpdb->posts,
-        'postmeta' => $wpdb->postmeta,
-        'lookup'   => $wpdb->prefix . 'wc_product_meta_lookup',
-        'options'  => $wpdb->prefix . 'options',
-    ];
-    $engines = [];
-    foreach ($tables as $label => $table) {
-        $row = $wpdb->get_row("SHOW TABLE STATUS LIKE " . $wpdb->prepare('%s', $table));
-        $engines[$label] = $row ? $row->Engine : 'UNKNOWN';
-    }
-    return $engines;
-}
-
-
-/**
- * Restore the captured state. Runs inside a single transaction. Every SQL
- * operation is checked; any hard failure triggers a ROLLBACK and a failure
- * return. A non-InnoDB table is reported as a warning (rollback may not cover
- * it) but does not by itself abort the restore.
- *
- * Returns [ 'ok' => bool, 'errors' => [string, ...] ].
- */
-function t10b_restore_state($backup) {
-    global $wpdb;
-    $post_ids    = $GLOBALS['t10b_post_ids'];
-    $product_ids = $GLOBALS['t10b_product_ids'];
-    $errors      = [];
-
-    $engines = t10b_table_engines();
-    $non_innodb = array_filter($engines, function ($e) {
-        return strcasecmp((string) $e, 'InnoDB') !== 0;
-    });
-    if ($non_innodb) {
-        $errors[] = 'WARNING: non-InnoDB tables present: ' . implode(', ', array_map(
-            function ($k, $v) { return "{$k} ({$v})"; },
-            array_keys($non_innodb),
-            array_values($non_innodb)
-        )) . ' — transaction rollback may not cover them.';
-    }
-
-    $wpdb->query('START TRANSACTION');
-
-    try {
-        // 1. wp_posts — restore ALL columns
-        foreach ($backup['posts'] as $id => $row) {
-            $data = $row;
-            unset($data['ID']);
-            $result = $wpdb->update($wpdb->posts, $data, ['ID' => $id]);
-            if ($result === false) {
-                $errors[] = "wp_posts update failed for ID {$id}: {$wpdb->last_error}";
-            }
-        }
-
-        // 2. wp_postmeta — delete all rows for the post, re-insert verbatim
-        foreach ($post_ids as $id) {
-            $result = $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->postmeta} WHERE post_id = %d", $id));
-            if ($result === false) {
-                $errors[] = "wp_postmeta delete failed for ID {$id}: {$wpdb->last_error}";
-            }
-            $rows = isset($backup['postmeta'][$id]) ? $backup['postmeta'][$id] : [];
-            foreach ($rows as $row) {
-                $result = $wpdb->insert($wpdb->postmeta, [
-                    'meta_id'    => $row['meta_id'],
-                    'post_id'    => $row['post_id'],
-                    'meta_key'   => $row['meta_key'],
-                    'meta_value' => $row['meta_value'],
-                ]);
-                if ($result === false) {
-                    $errors[] = "wp_postmeta insert failed for ID {$id} [{$row['meta_key']}]: {$wpdb->last_error}";
-                }
-            }
-        }
-
-        // 3. wp_wc_product_meta_lookup — upsert each authorized product row
-        $lookup_table = $wpdb->prefix . 'wc_product_meta_lookup';
-        foreach ($product_ids as $id) {
-            if (isset($backup['lookup'][$id])) {
-                $row  = $backup['lookup'][$id];
-                $data = $row;
-                unset($data['product_id']);
-                $exists = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$lookup_table} WHERE product_id = %d", $id));
-                if ($exists) {
-                    $result = $wpdb->update($lookup_table, $data, ['product_id' => $id]);
-                } else {
-                    $result = $wpdb->insert($lookup_table, $row);
-                }
-                if ($result === false) {
-                    $errors[] = "lookup restore failed for ID {$id}: {$wpdb->last_error}";
-                }
-            } else {
-                // No row in the snapshot: remove any row the tests created.
-                $result = $wpdb->query($wpdb->prepare("DELETE FROM {$lookup_table} WHERE product_id = %d", $id));
-                if ($result === false) {
-                    $errors[] = "lookup delete failed for ID {$id}: {$wpdb->last_error}";
-                }
-            }
-        }
-
-        // 4. wp_options (transients) — restore the targeted snapshot
-        $backup_opts = [];
-        foreach ($backup['options'] as $r) {
-            $backup_opts[$r['option_name']] = $r['option_value'];
-        }
-        $like_clauses = [];
-        $like_params  = [];
-        foreach ($product_ids as $id) {
-            $like_clauses[] = 'option_name LIKE %s';
-            $like_params[]  = "%{$id}%";
-        }
-        $current = $wpdb->get_results($wpdb->prepare(
-            "SELECT option_name FROM {$wpdb->prefix}options WHERE " . implode(' OR ', $like_clauses),
-            ...$like_params
-        ), ARRAY_A);
-        foreach ($current as $r) {
-            if (!array_key_exists($r['option_name'], $backup_opts)) {
-                $result = $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->prefix}options WHERE option_name = %s", $r['option_name']));
-                if ($result === false) {
-                    $errors[] = "options delete failed for {$r['option_name']}: {$wpdb->last_error}";
-                }
-            }
-        }
-        foreach ($backup_opts as $name => $value) {
-            $exists = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->prefix}options WHERE option_name = %s", $name));
-            if ($exists) {
-                $result = $wpdb->query($wpdb->prepare("UPDATE {$wpdb->prefix}options SET option_value = %s WHERE option_name = %s", $value, $name));
-            } else {
-                $result = $wpdb->query($wpdb->prepare("INSERT INTO {$wpdb->prefix}options (option_name, option_value) VALUES (%s, %s)", $name, $value));
-            }
-            if ($result === false) {
-                $errors[] = "options restore failed for {$name}: {$wpdb->last_error}";
-            }
-        }
-
-        // Separate hard errors from the non-InnoDB warning.
-        $hard_errors = array_values(array_filter($errors, function ($e) {
-            return strpos($e, 'WARNING:') !== 0;
-        }));
-
-        if ($hard_errors) {
-            $wpdb->query('ROLLBACK');
-            return ['ok' => false, 'errors' => $errors];
-        }
-
-        $wpdb->query('COMMIT');
-        if ($wpdb->last_error) {
-            $errors[] = "COMMIT reported: {$wpdb->last_error}";
-            return ['ok' => false, 'errors' => $errors];
-        }
-        return ['ok' => true, 'errors' => $errors];
-    } catch (Exception $e) {
-        $wpdb->query('ROLLBACK');
-        return ['ok' => false, 'errors' => array_merge($errors, ['exception: ' . $e->getMessage()])];
-    }
-}
-
-
-/**
- * Verify that the current database state matches the captured snapshot.
- *
- * Checks, for the authorized scope:
- *   - wp_posts: every column of every authorized post matches.
- *   - wp_postmeta: the exact set of (meta_key, meta_value) rows matches,
- *     including duplicate keys and row counts.
- *   - wp_wc_product_meta_lookup: every column of every authorized product row
- *     matches; no extra rows exist for the authorized product IDs.
- *   - wp_options (transients): the targeted option set matches.
- *
- * Returns [ 'ok' => bool, 'mismatches' => [string, ...] ].
- */
-function t10b_verify_restore($backup) {
-    global $wpdb;
-    $post_ids    = $GLOBALS['t10b_post_ids'];
-    $product_ids = $GLOBALS['t10b_product_ids'];
-    $mismatches  = [];
-
-    // 1. wp_posts — every column
-    foreach ($backup['posts'] as $id => $brow) {
-        $arow = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->posts} WHERE ID = %d", $id), ARRAY_A);
-        if (!$arow) {
-            $mismatches[] = "wp_posts: post {$id} is missing after restore";
-            continue;
-        }
-        foreach ($brow as $col => $bv) {
-            $av = array_key_exists($col, $arow) ? $arow[$col] : '<MISSING>';
-            if ((string) $bv !== (string) $av) {
-                $mismatches[] = "wp_posts.{$id}.{$col}: backup=" . var_export($bv, true) . " current=" . var_export($av, true);
-            }
-        }
-    }
-
-    // 2. wp_postmeta — exact (key => [values]) multiset per post
-    foreach ($post_ids as $id) {
-        $bmap = [];
-        foreach ((isset($backup['postmeta'][$id]) ? $backup['postmeta'][$id] : []) as $r) {
-            $bmap[$r['meta_key']][] = $r['meta_value'];
-        }
-        $arows = $wpdb->get_results($wpdb->prepare("SELECT meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id = %d", $id), ARRAY_A);
-        $amap = [];
-        foreach ($arows as $r) {
-            $amap[$r['meta_key']][] = $r['meta_value'];
-        }
-        // Row count
-        $bcount = 0;
-        foreach ($bmap as $vals) { $bcount += count($vals); }
-        $acount = 0;
-        foreach ($amap as $vals) { $acount += count($vals); }
-        if ($bcount !== $acount) {
-            $mismatches[] = "wp_postmeta.{$id}: row count backup={$bcount} current={$acount}";
-        }
-        // Key set
-        if (array_keys($bmap) != array_keys($amap)) {
-            $mismatches[] = "wp_postmeta.{$id}: key set differs (backup=" . implode(',', array_keys($bmap)) . " current=" . implode(',', array_keys($amap)) . ")";
-        }
-        // Per-key value multiset (order-insensitive, duplicate-aware)
-        foreach (array_unique(array_merge(array_keys($bmap), array_keys($amap))) as $k) {
-            $bv = isset($bmap[$k]) ? $bmap[$k] : [];
-            $av = isset($amap[$k]) ? $amap[$k] : [];
-            sort($bv);
-            sort($av);
-            if ($bv !== $av) {
-                $mismatches[] = "wp_postmeta.{$id}[{$k}]: backup=" . json_encode($bv) . " current=" . json_encode($av);
-            }
-        }
-    }
-
-    // 3. wp_wc_product_meta_lookup — every column + no extra rows
-    $lookup_table = $wpdb->prefix . 'wc_product_meta_lookup';
-    foreach ($product_ids as $id) {
-        $arow = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$lookup_table} WHERE product_id = %d", $id), ARRAY_A);
-        if (isset($backup['lookup'][$id])) {
-            if (!$arow) {
-                $mismatches[] = "lookup.{$id}: row missing after restore";
-                continue;
-            }
-            foreach ($backup['lookup'][$id] as $col => $bv) {
-                $av = array_key_exists($col, $arow) ? $arow[$col] : '<MISSING>';
-                if ((string) $bv !== (string) $av) {
-                    $mismatches[] = "lookup.{$id}.{$col}: backup=" . var_export($bv, true) . " current=" . var_export($av, true);
-                }
-            }
-        } else {
-            if ($arow) {
-                $mismatches[] = "lookup.{$id}: row present after restore but absent from snapshot";
-            }
-        }
-    }
-
-    // 4. wp_options (transients) — targeted set
-    $like_clauses = [];
-    $like_params  = [];
-    foreach ($product_ids as $id) {
-        $like_clauses[] = 'option_name LIKE %s';
-        $like_params[]  = "%{$id}%";
-    }
-    $bopts = [];
-    foreach ($backup['options'] as $r) {
-        $bopts[$r['option_name']] = $r['option_value'];
-    }
-    $arows = $wpdb->get_results($wpdb->prepare(
-        "SELECT option_name, option_value FROM {$wpdb->prefix}options WHERE " . implode(' OR ', $like_clauses),
-        ...$like_params
-    ), ARRAY_A);
-    $aopts = [];
-    foreach ($arows as $r) {
-        $aopts[$r['option_name']] = $r['option_value'];
-    }
-    if ($bopts != $aopts) {
-        $mismatches[] = "options(transients): backup=" . json_encode(array_keys($bopts)) . " current=" . json_encode(array_keys($aopts));
-    }
-
-    return ['ok' => empty($mismatches), 'mismatches' => $mismatches];
-}
+require_once __DIR__ . '/backup-restore.php';
 
 
 // Save a currency through the REAL admin save workflow (mirrors the compat
@@ -525,12 +177,14 @@ function t10b_do_restore() {
     $result = t10b_restore_state($GLOBALS['t10b_backup']);
     $GLOBALS['t10b_restore_ok']   = $result['ok'];
     $GLOBALS['t10b_restore_errs'] = $result['errors'];
-    // Clear object caches so subsequent reads see the restored rows.
+    // Clear the post object cache so subsequent reads see the restored rows.
+    // NOTE (Task 10c): do NOT call wc_delete_product_transients() here — the
+    // targeted product transients are part of the restored state (captured in
+    // the backup and re-inserted by t10b_restore_state()). Deleting them after
+    // the restore would remove the very rows the verification then checks,
+    // producing a false "transients missing" mismatch.
     foreach ($GLOBALS['t10b_post_ids'] as $id) {
         clean_post_cache($id);
-        if (function_exists('wc_delete_product_transients')) {
-            wc_delete_product_transients($id);
-        }
     }
 }
 
@@ -566,8 +220,15 @@ t10_check('I0.8 variation B exists', (bool) wc_get_product(T10_VARIATION_B), tru
 
 // ===========================================================================
 // Backup the authorized state (products + variations + currencies)
+// Task 10c: a failed/incomplete backup aborts the run BEFORE any mutation.
 // ===========================================================================
-$GLOBALS['t10b_backup'] = t10b_backup_state($GLOBALS['t10b_post_ids'], $GLOBALS['t10b_product_ids']);
+try {
+    $GLOBALS['t10b_backup'] = t10b_backup_state();
+} catch (T10c_BackupException $e) {
+    echo "\n[backup] FATAL: " . $e->getMessage() . "\n";
+    echo "[backup] No test mutation was performed. Aborting.\n";
+    exit(1);
+}
 $engines = t10b_table_engines();
 echo "\n[backup] captured " . count($GLOBALS['t10b_backup']['posts']) . " posts, "
     . count($GLOBALS['t10b_backup']['lookup']) . " lookup rows, "
@@ -577,6 +238,12 @@ echo "[backup] table engines: " . implode(', ', array_map(
     array_keys($engines),
     array_values($engines)
 )) . "\n";
+
+// Task 10c: transaction support must be established before any mutation.
+if (!t10c_transaction_support_established($engines)) {
+    echo "[backup] FATAL: transaction support not established (all required tables must be InnoDB). Aborting before any mutation.\n";
+    exit(1);
+}
 
 
 // ===========================================================================
