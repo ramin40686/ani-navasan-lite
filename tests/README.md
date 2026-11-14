@@ -75,16 +75,32 @@ wp eval-file /path/to/ani-navasan-lite/tests/integration/integration-test.php
 
 ### Safety model
 
-- **Backup first:** the full post + meta state of all six authorized posts is
-  captured before any mutation.
+- **Backup first:** the FULL state of every record the suite can modify is
+  captured before any mutation, scoped to the six authorized posts and the four
+  product IDs:
+  - `wp_posts` — ALL columns (including `post_modified`/`post_modified_gmt`).
+  - `wp_postmeta` — ALL rows, including duplicate keys and their `meta_id`.
+  - `wp_wc_product_meta_lookup` — ALL columns for the four product IDs.
+  - `wp_options` (transients) — a targeted safety net (options referencing a
+    product ID; normally empty).
 - **Real save paths:** the tests exercise the genuine plugin handlers
   (`woocommerce_admin_process_product_object`, `woocommerce_save_product_variation`,
   `save_post_product`, and the real `save_post_mnswmc` currency-save workflow
   via `wp_update_post()` with a valid nonce + admin user).
-- **Restore after:** state is restored **byte-for-byte** via a direct-DB
-  transaction (no hooks fired), then verified row-by-row (I6).
+- **Restore after:** state is restored via a single direct-DB **transaction**
+  (no hooks fired). Every SQL operation is checked; a failed query rolls back
+  and is reported as a failure. The restore is then **verified** across all
+  four tables (row counts, duplicate keys, exact values, orphan-row removal)
+  in I6.
+- **Failure safety:** scenarios run inside `try/finally` with a single
+  shutdown-handler safety net and a restoration state flag, so the restore is
+  attempted even if a scenario throws an ordinary PHP error, and is performed
+  at most once. If the restore or verification fails, the suite exits non-zero
+  and never prints a success summary.
 - **No partial POSTs:** the tests never send a partial product form that could
   drop attributes or unrelated meta.
+- **Documented limitation:** a shutdown handler cannot guarantee restoration
+  after process termination, a server crash, power loss, or a database outage.
 
 ### Scenarios
 
@@ -96,8 +112,8 @@ wp eval-file /path/to/ani-navasan-lite/tests/integration/integration-test.php
 | I3 | Decimal rounding hook (`save_post_product`): 2-decimal rounding of currency fields |
 | I4a | Recalculation — currency A rate change 2000→2500→2000 (simple + variation A, parent sync, sale preservation, currency-B isolation) |
 | I4b | Recalculation — currency B rate change 2000→2500→2000 (variation B, parent sync, currency-A isolation) |
-| I5 | Attribute serialization regression (`_product_attributes` is a real array, not double-serialized) |
-| I6 | Final restore round-trip verification (every post + meta row matches the backup) |
+| I5 | Attribute serialization regression — a controlled recalculation syncs the variable parent; `_product_attributes` stays a real array (not double-serialized) with its data intact |
+| I6 | Final restore round-trip verification (all four tables — posts, postmeta, lookup, targeted transients — match the backup) |
 
 ## 3. Compatibility matrix (pre-existing)
 

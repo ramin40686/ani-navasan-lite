@@ -15,8 +15,9 @@ Build a repeatable automated regression/test infrastructure for Ani Navasan Lite
 - Target the **real plugin code** (not reimplementations).
 - Cover the core business logic: rounding, rate helper, migrations, the full
   save flow, and currency-rate recalculation.
-- Be safe: live-site tests must back up and restore state byte-for-byte and use
-  only the authorized test products/currencies.
+- Be safe: live-site tests must back up and restore the full state of every
+  record they can modify (scoped to the authorized test products/currencies)
+  and verify the restoration.
 - Be repeatable: a single command runs the local unit suite; a documented
   command runs the live integration suite.
 
@@ -208,9 +209,19 @@ Run against `anishop-package-test.local` (PHP 8.4.10 / WP 7.1.4 / WC 11.3.0):
 | I6 Restore round-trip verification | 242 | PASS |
 | **Total** | **301** | **301/301 PASS, 0 failures** |
 
-The I6 section verifies that, after the final restore, every post field and
-every meta row (key + value) for all six authorized posts matches the pre-test
-backup exactly — confirming the suite leaves the site in its original state.
+The I6 section verifies that, after the final restore, the authorized records
+match the pre-test backup — confirming the suite leaves the site in its
+original state.
+
+> **Task 10b follow-up:** the original Task 10 backup/restore captured only
+> selected `wp_posts` fields and `wp_postmeta`, and did **not** capture the
+> WooCommerce product lookup table (`wp_wc_product_meta_lookup`) or the
+> `post_modified` timestamps — so its "byte-for-byte" claim was not fully
+> demonstrated. Task 10b hardened the backup/restore to capture and restore
+> **all** modified tables (posts, postmeta, lookup, targeted transients) within
+> a transaction, with per-query error checking, `try/finally` + shutdown-handler
+> failure safety, and a full multi-table restore verification. See
+> `docs/reports/2026-11-14-task-10b-integration-restore-safety.md`.
 
 ### 8.3 Static checks
 
