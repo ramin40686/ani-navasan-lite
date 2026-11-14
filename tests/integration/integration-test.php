@@ -467,6 +467,89 @@ if ($orig_attrs === '' || $orig_attrs === null) {
 }
 
 
+// ===========================================================================
+// I7 — Security regression: currency save handler protections (Task 11)
+//
+// Verifies the security controls on the save_post_mnswmc handler so it cannot
+// be triggered in an unauthorized context:
+//   - a missing or invalid nonce is rejected (rate not updated);
+//   - a user without edit_post capability is rejected (rate not updated).
+// The handler returns early in each case, so no mutation occurs and the
+// backup/restore baseline is unaffected.
+// ===========================================================================
+echo "\n=== I7: Security regression — currency save handler protections ===\n";
+
+$baseline_rate = get_post_meta(T10_CURRENCY_A, '_mnswmc_currency_value', true);
+
+// I7.1: an invalid nonce is rejected.
+$_POST['mnswmc_meta_nonce'] = 'invalid-nonce-value';
+$_POST['mnswmc_rate']       = '99999';
+do_action('save_post_mnswmc', T10_CURRENCY_A);
+unset($_POST['mnswmc_meta_nonce'], $_POST['mnswmc_rate']);
+t10_check('I7.1 invalid nonce rejected (rate unchanged)', get_post_meta(T10_CURRENCY_A, '_mnswmc_currency_value', true), $baseline_rate);
+
+// I7.2: a missing nonce is rejected.
+$_POST['mnswmc_rate'] = '99999';
+do_action('save_post_mnswmc', T10_CURRENCY_A);
+unset($_POST['mnswmc_rate']);
+t10_check('I7.2 missing nonce rejected (rate unchanged)', get_post_meta(T10_CURRENCY_A, '_mnswmc_currency_value', true), $baseline_rate);
+
+// I7.3: a valid nonce but insufficient capability is rejected.
+$_POST['mnswmc_meta_nonce'] = wp_create_nonce('mnswmc_meta_save');
+$_POST['mnswmc_rate']       = '99999';
+wp_set_current_user(0); // not logged in -> no edit_post capability
+do_action('save_post_mnswmc', T10_CURRENCY_A);
+wp_set_current_user($admin_id); // restore the admin user for subsequent tests
+unset($_POST['mnswmc_meta_nonce'], $_POST['mnswmc_rate']);
+t10_check('I7.3 insufficient capability rejected (rate unchanged)', get_post_meta(T10_CURRENCY_A, '_mnswmc_currency_value', true), $baseline_rate);
+
+
+// ===========================================================================
+// J1 — JavaScript loading scope (Task 11)
+//
+// The admin JS (mnswmc-admin-js) is now scoped to product edit / new-product
+// screens only (matching the CSS). This scenario verifies the scoping by
+// calling the real enqueue function with different admin-screen contexts and
+// checking whether the script is registered:
+//   - enqueued on a product edit screen (post.php + product);
+//   - enqueued on a new-product screen (post-new.php + post_type=product);
+//   - NOT enqueued on the dashboard (index.php);
+//   - NOT enqueued on a non-product post edit screen (post.php + page).
+// ===========================================================================
+echo "\n=== J1: JavaScript loading scope ===\n";
+
+$orig_post = $GLOBALS['post'] ?? null;
+
+// J1.1: product edit screen -> enqueued.
+wp_deregister_script('mnswmc-admin-js');
+$GLOBALS['post'] = get_post(T10_SIMPLE_PRODUCT);
+mnswmc_enqueue_admin_scripts('post.php');
+t10_check('J1.1 JS enqueued on product edit screen', (bool) wp_scripts()->query('mnswmc-admin-js', 'registered'), true);
+
+// J1.2: new-product screen -> enqueued.
+wp_deregister_script('mnswmc-admin-js');
+$GLOBALS['post'] = null;
+$_GET['post_type'] = 'product';
+mnswmc_enqueue_admin_scripts('post-new.php');
+unset($_GET['post_type']);
+t10_check('J1.2 JS enqueued on new-product screen', (bool) wp_scripts()->query('mnswmc-admin-js', 'registered'), true);
+
+// J1.3: dashboard -> not enqueued.
+wp_deregister_script('mnswmc-admin-js');
+$GLOBALS['post'] = null;
+mnswmc_enqueue_admin_scripts('index.php');
+t10_check('J1.3 JS not enqueued on dashboard', (bool) wp_scripts()->query('mnswmc-admin-js', 'registered'), false);
+
+// J1.4: non-product post edit screen -> not enqueued.
+wp_deregister_script('mnswmc-admin-js');
+$GLOBALS['post'] = new WP_Post((object) ['ID' => 999999, 'post_type' => 'page', 'post_status' => 'publish']);
+mnswmc_enqueue_admin_scripts('post.php');
+t10_check('J1.4 JS not enqueued on non-product post screen', (bool) wp_scripts()->query('mnswmc-admin-js', 'registered'), false);
+
+// Restore the original $post.
+$GLOBALS['post'] = $orig_post;
+
+
 } catch (Throwable $e) {
     // An ordinary PHP error in a scenario. Record it; the finally block still
     // attempts the restore. The original failure is NOT masked by the restore.

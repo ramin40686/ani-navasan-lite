@@ -47,6 +47,7 @@ echo "============================================================"
 run "PHP: rounding"        php "${UNIT}/rounding-test.php"
 run "PHP: rate helper"     php "${UNIT}/rate-helper-test.php"
 run "PHP: migrations"      php "${UNIT}/migration-test.php"
+run "PHP: dependence type" php "${UNIT}/dependence-type-test.php"
 
 # 2. JS unit test
 run "JS: rounding"         node "${UNIT}/rounding-js-test.js"
