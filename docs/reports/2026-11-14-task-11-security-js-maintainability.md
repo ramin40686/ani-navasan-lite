@@ -283,8 +283,17 @@ manual/code-review verification rather than an automated test.
 
 - **Branch:** `security/task-11-security-js-maintainability`
 - **Base:** `fix/task-10c-backup-validation` (`ab980af17f69de0e52583f0b1bf41d8c3473031a`)
-- **Commits:** (recorded below after commit)
-- **Push status:** pushed to `origin` (recorded below).
+- **Commits:**
+
+| # | Full SHA | Subject |
+|---|----------|---------|
+| 1 | `969508eee3ddd48e61bcd5525cafb9c0b4f9d374` | security(task-11): add explicit DOING_AUTOSAVE guard to currency save handler |
+| 2 | `edab3302c4c6c9129b8dfbd5fc72ac87e0369aac` | perf(task-11): scope admin JS to product edit/new-product screens only |
+| 3 | `4825e855fabfc45b4d9efcec86661ac394128b11` | refactor(task-11): remove dead code + extract shared dependence-type resolver |
+| 4 | `0c1fbf5086334314aaf42a8aff7963c85e9c31c2` | test(task-11): add dependence-type unit suite + I7 security & J1 JS-scope integration checks |
+| 5 | `9f099ebe27ff06fbb09bb8e607d9ee694645f62e` | docs(task-11): report + roadmap (Task 10 closed, 10d/12 skipped) + memory bank + test README |
+
+- **Push status:** pushed to `origin/security/task-11-security-js-maintainability`.
 - **Merged:** No (per project workflow — awaiting owner review).
 
 ## 11. Test Environment and Restoration Status
