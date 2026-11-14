@@ -4,6 +4,8 @@
 **Branch:** `security/task-11-security-js-maintainability`
 **Base:** `fix/task-10c-backup-validation` (commit `ab980af17f69de0e52583f0b1bf41d8c3473031a`)
 **Scope:** Security audit + targeted, evidence-based corrections (security, JS loading, maintainability). No changes to the calculation algorithm, metadata contracts, or product pricing behavior.
+**Status:** **COMPLETE — merged into `main` and released as `1.2.0`** (see §10).
+**Version:** `1.2.0` (bumped from `1.1.0` in this task's release commit).
 
 ---
 
@@ -292,9 +294,26 @@ manual/code-review verification rather than an automated test.
 | 3 | `4825e855fabfc45b4d9efcec86661ac394128b11` | refactor(task-11): remove dead code + extract shared dependence-type resolver |
 | 4 | `0c1fbf5086334314aaf42a8aff7963c85e9c31c2` | test(task-11): add dependence-type unit suite + I7 security & J1 JS-scope integration checks |
 | 5 | `9f099ebe27ff06fbb09bb8e607d9ee694645f62e` | docs(task-11): report + roadmap (Task 10 closed, 10d/12 skipped) + memory bank + test README |
+| 6 | `11bb8d41c7a47d24bb919d2beb690ee96ea81567` | docs(task-11): record commit hashes and push status in report |
 
 - **Push status:** pushed to `origin/security/task-11-security-js-maintainability`.
-- **Merged:** No (per project workflow — awaiting owner review).
+- **Merged:** **Yes** — merged into `main` with `--no-ff` (owner-authorized). See §10.1.
+
+### 10.1 Merge, Tag & Release (1.2.0)
+
+- **Merge method:** non-fast-forward (`--no-ff`) into `main`, preserving the task branch history.
+- **Merge commit SHA:** `MERGE_SHA_PLACEHOLDER`
+- **Final `main` HEAD (after merge):** `MAIN_HEAD_PLACEHOLDER`
+- **Annotated tag:** `1.2.0` → points to the merge commit `MERGE_SHA_PLACEHOLDER` (tag object SHA: `TAG_SHA_PLACEHOLDER`).
+- **GitHub Release:** `https://github.com/ramin40686/ani-navasan-lite/releases/tag/1.2.0`
+- **Remote sync:** `main` and `origin/main` synchronized; tag `1.2.0` pushed to `origin`.
+- **Post-merge test results:** recorded in §10.2.
+
+### 10.2 Post-merge verification
+
+- PHP syntax checks, JavaScript syntax check, unit suite, integration suite, and fault-injection suite re-run after the merge (results recorded below).
+- Plugin version verified as `1.2.0` (header + runtime).
+- Authorized test data verified intact; working tree clean.
 
 ## 11. Test Environment and Restoration Status
 
