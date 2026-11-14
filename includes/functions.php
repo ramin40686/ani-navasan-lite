@@ -42,6 +42,26 @@ function ani_navasan_get_currency_rate($currency_id) {
 }
 
 /**
+ * 🟢 تعیین نوع وابستگی ارزی (simple / advanced)
+ *
+ * توسط handlerهای ذخیرهٔ محصول ساده و Variationها استفاده می‌شود. مقدار ارسالی
+ * فقط در صورتی پذیرفته می‌شود که یکی از دو مقدار معتبر باشد؛ در غیر این صورت
+ * مقدار معتبر قبلی (اگر ثبت شده باشد) حفظ می‌شود و در نبود آن، پیش‌فرض
+ * `simple` اعمال می‌گردد. این کار whitelist و مقدار پیش‌فرض را در یک نقطهٔ
+ * واحد نگه می‌دارد.
+ *
+ * @param string $posted   مقدار دریافتی از فرم (پیش‌تر sanitize شده)
+ * @param string $existing مقدار فعلی ذخیره‌شده در متادیتا
+ * @return string `simple` یا `advanced`
+ */
+function ani_navasan_resolve_dependence_type($posted, $existing) {
+    if (in_array($posted, array('simple', 'advanced'), true)) {
+        return $posted;
+    }
+    return in_array($existing, array('simple', 'advanced'), true) ? $existing : 'simple';
+}
+
+/**
  * 🟢 مهاجرت یک‌باره کلید نرخ ارز از `_mnswmc_rate` به `_mnswmc_currency_value`
  *
  * این تابع هنگام فعال‌سازی افزونه اجرا می‌شود و مقادیر نرخ ارز ذخیره‌شده با کلید

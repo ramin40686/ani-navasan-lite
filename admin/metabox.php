@@ -180,11 +180,8 @@ add_action('woocommerce_admin_process_product_object', function ($product) {
 
     // نوع وابستگی ارزی (simple / advanced) — پیش‌فرض: simple
     // پیش‌فرض فقط زمانی اعمال می‌شود که مقدار معتبر قبلی ثبت نشده باشد
-    $dependence_type = isset($_POST['_mnswmc_dependence_type']) ? wc_clean($_POST['_mnswmc_dependence_type']) : '';
-    if (!in_array($dependence_type, array('simple', 'advanced'), true)) {
-        $existing_type = $product->get_meta('_mnswmc_dependence_type', true);
-        $dependence_type = in_array($existing_type, array('simple', 'advanced'), true) ? $existing_type : 'simple';
-    }
+    $posted_type = isset($_POST['_mnswmc_dependence_type']) ? wc_clean($_POST['_mnswmc_dependence_type']) : '';
+    $dependence_type = ani_navasan_resolve_dependence_type($posted_type, $product->get_meta('_mnswmc_dependence_type', true));
     $product->update_meta_data('_mnswmc_dependence_type', $dependence_type);
 
     // ---------- محاسبه سروری (fallback) ----------
@@ -369,11 +366,8 @@ add_action('woocommerce_save_product_variation', function ($variation_id, $i) {
 
     // نوع وابستگی ارزی (simple / advanced) — پیش‌فرض: simple
     // پیش‌فرض فقط زمانی اعمال می‌شود که مقدار معتبر قبلی ثبت نشده باشد
-    $dependence_type = isset($_POST['_mnswmc_dependence_type'][$i]) ? wc_clean($_POST['_mnswmc_dependence_type'][$i]) : '';
-    if (!in_array($dependence_type, array('simple', 'advanced'), true)) {
-        $existing_type = get_post_meta($variation_id, '_mnswmc_dependence_type', true);
-        $dependence_type = in_array($existing_type, array('simple', 'advanced'), true) ? $existing_type : 'simple';
-    }
+    $posted_type = isset($_POST['_mnswmc_dependence_type'][$i]) ? wc_clean($_POST['_mnswmc_dependence_type'][$i]) : '';
+    $dependence_type = ani_navasan_resolve_dependence_type($posted_type, get_post_meta($variation_id, '_mnswmc_dependence_type', true));
     update_post_meta($variation_id, '_mnswmc_dependence_type', $dependence_type);
 
     // ---------- محاسبه سروری (fallback) ----------

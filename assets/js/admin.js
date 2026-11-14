@@ -103,10 +103,6 @@ jQuery(document).ready(function ($) {
             const $regularInput = findSimpleRegularPrice();
             if ($regularInput.length) {
                 $regularInput.val(regularToman).trigger('change');
-            } else {
-                // fallback id قدیمی
-                const $r2 = $('#_regular_price');
-                if ($r2.length) $r2.val(regularToman).trigger('change');
             }
 
             // مقداردهی به فیلد قیمت ویژه تومانی (فقط در صورتی که قیمت ویژه ارزی داشته باشیم)
