@@ -14,6 +14,7 @@ tests/
 │   ├── rounding-test.php      # ani_navasan_round_to_thousand()
 │   ├── rate-helper-test.php   # ani_navasan_get_currency_rate()
 │   ├── migration-test.php     # rate-key + dependence-type migrations
+│   ├── dependence-type-test.php # ani_navasan_resolve_dependence_type() (Task 11)
 │   ├── rounding-js-test.js    # mnswmcRoundToThousand() (extracted from admin.js)
 │   ├── consistency-vectors.json  # Shared PHP<->JS rounding vectors
 │   ├── consistency-php.php    # PHP side of the consistency check
@@ -40,6 +41,7 @@ This runs:
 | PHP: rounding | `ani_navasan_round_to_thousand()` (nearest 1,000 Toman) | real `includes/functions.php` |
 | PHP: rate helper | `ani_navasan_get_currency_rate()` (standard key + legacy fallback) | real `includes/functions.php` |
 | PHP: migrations | `ani_navasan_lite_migrate_rate_key()` + `ani_navasan_lite_migrate_dependence_type()` | real `includes/functions.php` |
+| PHP: dependence type | `ani_navasan_resolve_dependence_type()` (whitelist + fallback + default) | real `includes/functions.php` |
 | JS: rounding | `mnswmcRoundToThousand()` | extracted from real `assets/js/admin.js` |
 | PHP<->JS consistency | identical rounding output for shared vectors | both, diffed |
 
@@ -134,6 +136,8 @@ wp eval-file /path/to/ani-navasan-lite/tests/integration/integration-test.php
 | I4a | Recalculation — currency A rate change 2000→2500→2000 (simple + variation A, parent sync, sale preservation, currency-B isolation) |
 | I4b | Recalculation — currency B rate change 2000→2500→2000 (variation B, parent sync, currency-A isolation) |
 | I5 | Attribute serialization regression — a controlled recalculation syncs the variable parent; `_product_attributes` stays a real array (not double-serialized) with its data intact |
+| I7 | Security regression (Task 11) — the `save_post_mnswmc` handler rejects an invalid nonce, a missing nonce, and an insufficient-capability request (rate unchanged in each case) |
+| J1 | JavaScript loading scope (Task 11) — `mnswmc-admin-js` is enqueued on product edit / new-product screens and NOT on the dashboard or non-product post screens |
 | I6 | Final restore round-trip verification (all four tables — posts, postmeta, lookup, targeted transients — match the backup) |
 
 ## 2b. Fault-injection tests (live site required, no mutation)
@@ -170,11 +174,15 @@ wp eval-file /path/to/ani-navasan-lite/tests/integration/fault-injection-test.ph
 
 - **Covered by unit tests:** rounding (PHP + JS + cross-language), rate helper
   (standard/legacy/fallback), both one-time migrations (idempotency,
-  never-overwrite, legacy→standard, `variable`→`advanced`).
+  never-overwrite, legacy→standard, `variable`→`advanced`), and the
+  dependence-type resolver `ani_navasan_resolve_dependence_type()` (Task 11:
+  whitelist, fallback to a valid existing value, `simple` default).
 - **Covered by integration tests:** the full save flow (simple + variation),
   decimal rounding hook, currency-rate recalculation (both currencies, parent
   sync, sale-price preservation, cross-currency isolation), attribute
-  serialization regression, and restore integrity.
+  serialization regression, security regression (Task 11 I7: currency-handler
+  nonce/capability rejection), JavaScript loading scope (Task 11 J1), and
+  restore integrity.
 - **Covered by fault-injection tests (Task 10c):** the failure paths of the
   backup/restore/verify harness itself — a failed backup SELECT, a failed
   `START TRANSACTION`, a failed verification SELECT, postmeta `meta_id`
