@@ -26,7 +26,7 @@ function mnswmc_enqueue_admin_scripts($hook) {
         'mnswmc-admin-js',
         plugin_dir_url(dirname(__FILE__)) . 'assets/js/admin.js',
         ['jquery'],
-        '1.2.0',
+        '1.2.1',
         true
     );
 

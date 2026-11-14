@@ -2,7 +2,7 @@
 /**
  * Plugin Name: نوسان آنی لایت (Ani Navasan Lite)
  * Description: نسخه لایت افزونه نوسان برای مدیریت فروش ارزی ووکامرس
- * Version: 1.2.0
+ * Version: 1.2.1
  * Author: ramin4068@gmail.com
  * Text Domain: ani-navasan-lite
  * Requires at least: 7.0.8
