@@ -330,5 +330,10 @@ currencies, and lookup rows match).
 | # | Full SHA | Subject |
 |---|----------|---------|
 | 1 | `4cb541f84d934e20282b5d3b7c5dad17a4c2778e` | test(task-10b): harden integration backup/restore + failure safety |
-| 2 | (this docs commit) | docs(task-10b): record commit hash and push status in report |
+| 2 | `24d61ce7cbddecd5b142363562f635b40e616958` | docs(task-10b): record commit hash and push status in report |
+| 3 | `59d42c66c6788e5cb0a343f6f46336d680d3919a` | docs(task-10b): remove remaining unsupported byte-for-byte claims |
+
+Commit 1 is the implementation (test + docs). Commits 2–3 are documentation-only
+follow-ups to this report (recording hashes and removing unsupported
+"byte-for-byte" phrasing); they do not touch any test or plugin file.
 
