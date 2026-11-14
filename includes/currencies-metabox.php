@@ -53,6 +53,13 @@ function ani_navasan_lite_currency_meta_box($post) {
  * 🔹 ذخیره‌سازی داده‌های متاباکس + شروع بروزرسانی محصولات ارزی
  */
 add_action('save_post_mnswmc', function ($post_id) {
+    // ذخیره‌های خودکار (autosave) را نادیده بگیر؛ این محافظ صریح است و با
+    // handler ذخیرهٔ محصول (includes/hooks.php) هم‌تراز است. (بررسی nonce در
+    // ادامه نیز autosave را مسدود می‌کند، اما این محافظ نیت را صریح می‌سازد.)
+    if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
+        return;
+    }
+
     // بررسی nonce
     if (!isset($_POST['mnswmc_meta_nonce']) || !wp_verify_nonce($_POST['mnswmc_meta_nonce'], 'mnswmc_meta_save')) {
         return;
